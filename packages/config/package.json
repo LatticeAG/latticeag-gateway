@@ -1,6 +1,6 @@
 {
   "name": "@latticeag/config",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "latticeag.json schema, load, and discovery.",
   "type": "module",
   "private": false,
@@ -21,13 +21,13 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "zod": "^3.24.4"
+    "zod": "^3.24.4",
+    "zod-to-json-schema": "^3.24.5"
   },
   "devDependencies": {
     "@types/node": "^20.17.19",
     "tsx": "^4.19.3",
     "typescript": "~5.8.3",
-    "vitest": "^3.0.9",
-    "zod-to-json-schema": "^3.24.5"
+    "vitest": "^3.0.9"
   }
 }

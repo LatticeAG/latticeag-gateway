@@ -1,6 +1,6 @@
 {
   "name": "@latticeag/cli",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "The LatticeAG stack as one command. Every product event, one schema.",
   "type": "module",
   "private": false,
