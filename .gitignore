@@ -37,6 +37,12 @@ archive/
 .latticeag/transcript.v2.json
 .latticeag/target.json
 .latticeag/diff-report.json
+**/.latticeag/
+
+# Python caches
+**/__pycache__/
+*.pyc
+.pytest_cache/
 
 # Logs and local state
 *.log
