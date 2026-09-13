@@ -112,7 +112,8 @@ export function formatProductsText(rows: ProductRow[]): string {
 
 function loadOptionalConfig(cwd: string): LatticeagConfig | undefined {
   try {
-    return loadConfig(cwd).config;
+    const loaded = loadConfig(cwd);
+    return loaded.version === 1 ? loaded.config : undefined;
   } catch (err) {
     if (err instanceof ConfigNotFoundError) {
       return undefined;

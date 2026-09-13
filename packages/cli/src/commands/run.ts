@@ -233,6 +233,12 @@ export async function startLatticeRun(
   } catch (err) {
     failConfig(err, flags.json, "run");
   }
+  if (loaded.version !== 1) {
+    fail(
+      `config schema_version ${loaded.config.schema_version} requires migration before run`,
+      { json: flags.json, command: "run", code: "CONFIG_MIGRATION_REQUIRED", exitCode: 3 },
+    );
+  }
 
   let env: NodeJS.ProcessEnv;
   try {

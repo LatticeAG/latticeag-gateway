@@ -1,0 +1,30 @@
+{
+  "name": "@latticeag/testkit",
+  "version": "0.0.0",
+  "description": "Deterministic Gateway v2 fixture prelude and capturing exchange harness shared by package tests.",
+  "type": "module",
+  "private": true,
+  "license": "MIT",
+  "engines": {
+    "node": ">=20.19"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsup src/index.ts --format esm --dts --clean",
+    "test": "vitest run",
+    "check": "tsc --noEmit && vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.19",
+    "tsup": "^8.5.1",
+    "typescript": "~5.8.3",
+    "vitest": "^3.0.9"
+  }
+}

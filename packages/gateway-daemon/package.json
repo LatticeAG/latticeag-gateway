@@ -1,0 +1,32 @@
+{
+  "name": "@latticeag/gateway-daemon",
+  "version": "0.0.0",
+  "description": "Gateway v2 daemon: durable JSONL lanes, commit journal, object store, and derived SQLite registry.",
+  "type": "module",
+  "private": true,
+  "license": "MIT",
+  "engines": {
+    "node": ">=23.4.0"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "check": "tsc --noEmit && vitest run"
+  },
+  "dependencies": {
+    "@latticeag/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "~5.8.3",
+    "vitest": "^3.0.9"
+  }
+}

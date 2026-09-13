@@ -84,6 +84,12 @@ export async function createLattice(opts: LatticeAGCreateOptions = {}): Promise<
       process.env.LATTICEAG_CONFIG = prevConfig;
     }
   }
+  if (loaded.version !== 1) {
+    throw new ConfigError(
+      "CONFIG_MIGRATION_REQUIRED",
+      `${loaded.path}: schema_version ${loaded.config.schema_version} requires migration; the v1 runtime path needs a v1 latticeag.json`,
+    );
+  }
 
   const overlay = overlayCreateOptions(opts, env);
   const run_id =

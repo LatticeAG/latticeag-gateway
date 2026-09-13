@@ -432,10 +432,21 @@ export async function runDoctorChecks(options: {
   if (discovered && existsSync(discovered.path)) {
     configPath = discovered.path;
     try {
-      config = readConfigFile(discovered.path);
-      checks.push(
-        check("config_valid", "pass", `schema_version=${config.schema_version}`),
-      );
+      const read = readConfigFile(discovered.path);
+      if (read.version === 1) {
+        config = read.config;
+        checks.push(
+          check("config_valid", "pass", `schema_version=${config.schema_version}`),
+        );
+      } else {
+        checks.push(
+          check(
+            "config_valid",
+            "warn",
+            `schema_version=${read.config.schema_version} (v2 config; v1 checks skipped)`,
+          ),
+        );
+      }
     } catch (err) {
       if (err instanceof ConfigParseError) {
         checks.push(

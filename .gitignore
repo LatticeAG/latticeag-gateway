@@ -49,3 +49,14 @@ archive/
 .DS_Store
 out/
 tmp/
+
+BUILD_PROMPT.md
+GATEWAY_*
+*_REVIEW_*
+STATUS.md
+*SPEC*
+*PROMPT*
+*REVIEW*
+*INTERFACES*
+*DRAFT*
+*SELFREVIEW*

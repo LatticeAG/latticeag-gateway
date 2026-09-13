@@ -27,7 +27,7 @@ import { resolveBackend, type ResolveBackendContext } from "./resolve-backend.js
 import { executeApprove, loadApprovalFixtures, type FixtureApproval } from "./stages/approve.js";
 import { executeBreakLoop } from "./stages/break-loop.js";
 import { executeCompensate } from "./stages/compensate.js";
-import { executeInspect } from "./stages/inspect.js";
+import { executeInspect } from "./stages/scan.js";
 import { executeObserveTool } from "./stages/observe-tool.js";
 import { executeReceipt } from "./stages/receipt.js";
 import { executeRecord } from "./stages/record.js";

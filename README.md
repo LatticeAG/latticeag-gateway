@@ -1,20 +1,20 @@
-# LatticeAG latticeag-cli 🧰
+# LatticeAG latticeag-gateway 🧰
 
 <p align="center">
-  <a href="https://github.com/LatticeAG/latticeag-cli/blob/main/LICENSE">
-    <img src="https://img.shields.io/github/license/LatticeAG/latticeag-cli?style=for-the-badge" alt="License" />
+  <a href="https://github.com/LatticeAG/latticeag-gateway/blob/main/LICENSE">
+    <img src="https://img.shields.io/github/license/LatticeAG/latticeag-gateway?style=for-the-badge" alt="License" />
   </a>
-  <a href="https://github.com/LatticeAG/latticeag-cli/actions/workflows/ci.yml">
-    <img src="https://img.shields.io/github/actions/workflow/status/LatticeAG/latticeag-cli/ci.yml?style=for-the-badge" alt="CI" />
+  <a href="https://github.com/LatticeAG/latticeag-gateway/actions/workflows/ci.yml">
+    <img src="https://img.shields.io/github/actions/workflow/status/LatticeAG/latticeag-gateway/ci.yml?style=for-the-badge" alt="CI" />
   </a>
-  <a href="https://github.com/LatticeAG/latticeag-cli/stargazers">
-    <img src="https://img.shields.io/github/stars/LatticeAG/latticeag-cli?style=for-the-badge" alt="GitHub stars" />
+  <a href="https://github.com/LatticeAG/latticeag-gateway/stargazers">
+    <img src="https://img.shields.io/github/stars/LatticeAG/latticeag-gateway?style=for-the-badge" alt="GitHub stars" />
   </a>
-  <a href="https://github.com/LatticeAG/latticeag-cli/issues">
-    <img src="https://img.shields.io/github/issues/LatticeAG/latticeag-cli?style=for-the-badge" alt="GitHub issues" />
+  <a href="https://github.com/LatticeAG/latticeag-gateway/issues">
+    <img src="https://img.shields.io/github/issues/LatticeAG/latticeag-gateway?style=for-the-badge" alt="GitHub issues" />
   </a>
-  <a href="https://github.com/LatticeAG/latticeag-cli">
-    <img src="https://img.shields.io/github/languages/top/LatticeAG/latticeag-cli?style=for-the-badge" alt="Top language" />
+  <a href="https://github.com/LatticeAG/latticeag-gateway">
+    <img src="https://img.shields.io/github/languages/top/LatticeAG/latticeag-gateway?style=for-the-badge" alt="Top language" />
   </a>
   <a href="https://nodejs.org/">
     <img src="https://img.shields.io/badge/Node-%3E%3D20.19-blue?style=for-the-badge&logo=node.js&logoColor=white" alt="Node" />
@@ -28,7 +28,7 @@
 
 <p align="center">
   <a href="#quick-start">Quick Start</a> ·
-  <a href="#why-latticeag-cli">Why latticeag-cli</a> ·
+  <a href="#why-latticeag-gateway">Why latticeag-gateway</a> ·
   <a href="#how-it-works">How It Works</a> ·
   <a href="#features">Features</a> ·
   <a href="#configuration">Configuration</a> ·
@@ -41,7 +41,7 @@
 
 Built by [LatticeAG](https://github.com/LatticeAG).
 
-## Why latticeag-cli
+## Why latticeag-gateway
 
 - **One command for the whole stack** - scaffold, attach, execute, and observe every LatticeAG product without learning each repo's bespoke wiring.
 - **One event schema** - beliefs, tool observations, verdicts, approvals, and receipts all validate against `@latticeag/events`. The `runs-on-latticeag` example asserts the chain order `belief < verdict < approval < receipt`.
@@ -49,7 +49,7 @@ Built by [LatticeAG](https://github.com/LatticeAG).
 - **Offline-first** - the local bus, JSONL log, fixture beliefs/approvals, and the reference demo run with no cloud dependency.
 - **Machine-friendly** - `--json` puts machine JSON on stdout with diagnostics on stderr; `--quiet` silences everything but errors.
 
-### How latticeag-cli is different
+### How latticeag-gateway is different
 
 - **Not a launcher script** - `latticeag run` attaches a real instrumentation kit (`openai-completions`, `openai-agents`, `hermes`, `langgraph`, `custom`) to a spawned command, streams product events to a JSONL log, and can fail the build (`--fail-on-sync`) when the sync outbox is non-empty.
 - **Schema-versioned events, not log lines** - `codegen` regenerates types from the events package; `VERSIONING.md` governs the event contract.
@@ -63,8 +63,8 @@ node --version   # >= 20.19
 pnpm --version   # 9.15.0
 
 # 2. Install and build
-git clone https://github.com/LatticeAG/latticeag-cli.git
-cd latticeag-cli
+git clone https://github.com/LatticeAG/latticeag-gateway.git
+cd latticeag-gateway
 pnpm install
 pnpm build
 
@@ -76,7 +76,7 @@ latticeag doctor
 latticeag run --attach openai-completions --cmd "npx tsx src/agent.ts"
 
 # Or install the CLI globally
-pnpm add -g @latticeag/cli
+pnpm add -g @latticeag/gateway
 ```
 
 Verify with the offline reference demo (no API keys needed):
@@ -132,7 +132,8 @@ flowchart LR
 
 | Package | Version | Description |
 |---------|---------|-------------|
-| `@latticeag/cli` | 0.1.2 | The `latticeag` binary. |
+| `@latticeag/gateway` | 2.0.0 | The `latticeag` binary. |
+| `@latticeag/cli` | 2.0.0 | Deprecated compat shim; forwards to `@latticeag/gateway`. |
 | `@latticeag/events` | 0.1.0 | The single versioned event model + codegen. |
 | `@latticeag/config` | 0.1.1 | Config discovery, validation (`latticeag-config-v1` schema). |
 | `@latticeag/bus` | 0.1.0 | Local event bus. |
@@ -182,6 +183,7 @@ Test suite (verified): **177 passed, 0 failed across 42 test files and 13 packag
 ```
 packages/
   cli/            latticeag binary (init, run, dev, events, doctor, products)
+  cli-compat/     @latticeag/cli forwarding shim (@latticeag/gateway)
   events/         versioned event model + codegen + VERSIONING.md
   config/         config discovery + latticeag-config-v1 validation
   bus/            local event bus

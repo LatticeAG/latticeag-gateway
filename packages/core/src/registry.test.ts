@@ -2,7 +2,7 @@ import type { BeliefExtractedEvent } from "@latticeag/events";
 import { z } from "zod";
 import { describe, expect, test } from "vitest";
 import { ConfigError } from "./errors.js";
-import { inspectInputSchema } from "./stages/inspect.js";
+import { inspectInputSchema } from "./stages/scan.js";
 import type { StageHandler } from "./stages/types.js";
 import { createFixtureLattice } from "./test-harness.js";
 import type { InspectInput } from "./types.js";

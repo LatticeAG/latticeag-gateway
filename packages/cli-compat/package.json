@@ -1,0 +1,26 @@
+{
+  "name": "@latticeag/cli",
+  "version": "2.0.0",
+  "description": "Renamed to @latticeag/gateway. The latticeag command is unchanged. @latticeag/cli 2.x forwards to Gateway 2.x through the 2.x compatibility window.",
+  "type": "module",
+  "private": false,
+  "license": "MIT",
+  "bin": {
+    "latticeag": "dist/bin.js"
+  },
+  "engines": {
+    "node": ">=20.19"
+  },
+  "scripts": {
+    "build": "pnpm --filter @latticeag/gateway build && tsc",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@latticeag/gateway": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.19",
+    "typescript": "~5.8.3",
+    "vitest": "^3.0.9"
+  }
+}

@@ -5,15 +5,50 @@ import {
   latticeagConfigSchema,
   type LatticeagConfig,
 } from "./schema.js";
+import {
+  latticeagConfigV2Schema,
+  type LatticeagConfigV2,
+} from "./schema-v2.js";
 
 export const CONFIG_FILENAME = "latticeag.json";
 
-export interface LoadedConfig {
-  config: LatticeagConfig;
+interface LoadedConfigBase {
   path: string;
   cwd: string;
   from_env: boolean;
+  raw: unknown;
 }
+
+export interface LoadedConfigV1 extends LoadedConfigBase {
+  version: 1;
+  config: LatticeagConfig;
+}
+
+export interface LoadedConfigV2 extends LoadedConfigBase {
+  version: 2;
+  config: LatticeagConfigV2;
+}
+
+export type LoadedConfig = LoadedConfigV1 | LoadedConfigV2;
+
+interface ReadConfigFileBase {
+  path: string;
+  raw: unknown;
+}
+
+export interface ReadConfigFileResultV1 extends ReadConfigFileBase {
+  version: 1;
+  config: LatticeagConfig;
+}
+
+export interface ReadConfigFileResultV2 extends ReadConfigFileBase {
+  version: 2;
+  config: LatticeagConfigV2;
+}
+
+export type ReadConfigFileResult =
+  | ReadConfigFileResultV1
+  | ReadConfigFileResultV2;
 
 export interface DiscoveredConfig {
   path: string;
@@ -49,6 +84,17 @@ export class ConfigSchemaError extends Error {
   ) {
     super(message);
     this.name = "ConfigSchemaError";
+  }
+}
+
+export class ConfigMigrationRequiredError extends Error {
+  readonly code = "CONFIG_MIGRATION_REQUIRED";
+  readonly hint = "run `latticeag gateway config migrate`";
+  constructor(readonly filePath: string) {
+    super(
+      `${filePath}: config schema_version 1 must be migrated to v2 — run \`latticeag gateway config migrate\``,
+    );
+    this.name = "ConfigMigrationRequiredError";
   }
 }
 
@@ -132,7 +178,35 @@ export function parseJsonStrict(text: string, filePath: string): unknown {
   }
 }
 
-export function readConfigFile(filePath: string): LatticeagConfig {
+function schemaVersionOf(raw: unknown): unknown {
+  if (typeof raw !== "object" || raw === null) {
+    return undefined;
+  }
+  return (raw as Record<string, unknown>)["schema_version"];
+}
+
+function unsupportedVersionError(
+  filePath: string,
+  version: unknown,
+): ConfigSchemaError {
+  const shown =
+    typeof version === "number" || typeof version === "string"
+      ? JSON.stringify(version)
+      : "(missing)";
+  return new ConfigSchemaError(
+    `${filePath}: schema_version ${shown} is not supported (SCHEMA_UNSUPPORTED): expected 1 or 2`,
+    filePath,
+    [
+      {
+        code: "custom",
+        path: ["schema_version"],
+        message: `unsupported schema_version ${shown} (SCHEMA_UNSUPPORTED)`,
+      },
+    ],
+  );
+}
+
+export function readConfigFile(filePath: string): ReadConfigFileResult {
   let buffer: Buffer;
   try {
     buffer = readFileSync(filePath);
@@ -157,7 +231,14 @@ export function readConfigFile(filePath: string): LatticeagConfig {
     text = text.slice(1);
   }
   const raw = parseJsonStrict(text, filePath);
-  const parsed = latticeagConfigSchema.safeParse(raw);
+  const version = schemaVersionOf(raw);
+  if (version !== 1 && version !== 2) {
+    throw unsupportedVersionError(filePath, version);
+  }
+  const parsed =
+    version === 1
+      ? latticeagConfigSchema.safeParse(raw)
+      : latticeagConfigV2Schema.safeParse(raw);
   if (!parsed.success) {
     const first = parsed.error.issues[0];
     const summary = first ? formatZodIssue(first) : "invalid config";
@@ -167,7 +248,20 @@ export function readConfigFile(filePath: string): LatticeagConfig {
       parsed.error.issues,
     );
   }
-  return parsed.data;
+  if (version === 1) {
+    return {
+      version: 1,
+      config: parsed.data as LatticeagConfig,
+      path: filePath,
+      raw,
+    };
+  }
+  return {
+    version: 2,
+    config: parsed.data as LatticeagConfigV2,
+    path: filePath,
+    raw,
+  };
 }
 
 export function loadConfig(cwd: string): LoadedConfig {
@@ -176,11 +270,36 @@ export function loadConfig(cwd: string): LoadedConfig {
   if (!discovered) {
     throw new ConfigNotFoundError(absCwd);
   }
-  const config = readConfigFile(discovered.path);
+  const result = readConfigFile(discovered.path);
+  if (result.version === 1) {
+    return {
+      version: 1,
+      config: result.config,
+      path: discovered.path,
+      cwd: absCwd,
+      from_env: discovered.from_env,
+      raw: result.raw,
+    };
+  }
   return {
-    config,
+    version: 2,
+    config: result.config,
     path: discovered.path,
     cwd: absCwd,
     from_env: discovered.from_env,
+    raw: result.raw,
   };
+}
+
+/**
+ * Load a config that must already be schema_version 2. Throws
+ * `ConfigMigrationRequiredError` (hinting at `latticeag gateway config
+ * migrate`) when the discovered file is still v1.
+ */
+export function loadConfigV2(cwd: string): LoadedConfigV2 {
+  const loaded = loadConfig(cwd);
+  if (loaded.version !== 2) {
+    throw new ConfigMigrationRequiredError(loaded.path);
+  }
+  return loaded;
 }

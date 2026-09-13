@@ -1,13 +1,25 @@
 {
-  "name": "@latticeag/cli",
-  "version": "0.1.2",
+  "name": "@latticeag/gateway",
+  "version": "2.0.0",
   "description": "The LatticeAG stack as one command. Every product event, one schema.",
   "type": "module",
   "private": false,
   "license": "MIT",
   "bin": {
-    "latticeag": "dist/cli.js"
+    "latticeag": "dist/bin.js"
   },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./cli": {
+      "types": "./dist/run-cli.d.ts",
+      "import": "./dist/run-cli.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "engines": {
     "node": ">=20.19"
   },

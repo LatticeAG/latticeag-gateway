@@ -9,7 +9,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@latticeag/cli": "workspace:*",
+    "@latticeag/gateway": "workspace:*",
     "openai": "^4.70.0"
   },
   "devDependencies": {
