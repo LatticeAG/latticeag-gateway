@@ -76,9 +76,12 @@ export function freePort(): Promise<number> {
 }
 
 export async function initRunProject(dir: string): Promise<void> {
-  const init = await runCli(["init", dir, "--template", "blank", "--force"], {
-    env: DUMMY_ADAPTER_ENV,
-  });
+  const init = await runCli(
+    ["init", dir, "--template", "blank", "--force", "--schema", "1"],
+    {
+      env: DUMMY_ADAPTER_ENV,
+    },
+  );
   if (init.status !== 0) {
     throw new Error(`init failed: ${init.stderr}${init.stdout}`);
   }

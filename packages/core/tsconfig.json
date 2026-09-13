@@ -5,5 +5,9 @@
     "outDir": "dist"
   },
   "include": ["src"],
-  "exclude": ["**/*.test.ts"]
+  // src/v2/lifecycle is an untracked work-in-progress tree (uncommitted,
+  // not imported by any package, currently failing to compile). It stays
+  // excluded so the published build covers the committed v2 surface plus
+  // the compiling src/v2/platform tree.
+  "exclude": ["**/*.test.ts", "src/v2/lifecycle/**"]
 }

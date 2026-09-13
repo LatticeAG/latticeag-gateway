@@ -225,6 +225,9 @@ importers:
       '@latticeag/config':
         specifier: workspace:*
         version: link:../config
+      '@latticeag/core':
+        specifier: workspace:*
+        version: link:../core
       '@latticeag/events':
         specifier: workspace:*
         version: link:../events
@@ -328,6 +331,9 @@ importers:
         specifier: ^3.24.4
         version: 3.25.76
     devDependencies:
+      '@latticeag/testkit':
+        specifier: workspace:*
+        version: link:../testkit
       '@types/node':
         specifier: ^20.17.19
         version: 20.19.43
@@ -362,10 +368,16 @@ importers:
 
   packages/gateway-daemon:
     dependencies:
+      '@latticeag/config':
+        specifier: workspace:*
+        version: link:../config
       '@latticeag/core':
         specifier: workspace:*
         version: link:../core
     devDependencies:
+      '@latticeag/testkit':
+        specifier: workspace:*
+        version: link:../testkit
       '@types/node':
         specifier: ^24.0.0
         version: 24.13.4

@@ -21,4 +21,10 @@ Commands:
   doctor [options]      Check the local latticeag setup.
   products [options]    List catalog products and adapter status.
   version [options]     Print latticeag and workspace package versions.
+  gateway [options]     Gateway v2 daemon, products, and control surface.
+  agent                 Agent pairing and peer management. (alias for gateway
+                        agent)
+  ui                    Local Web UI sessions. (alias for gateway ui)
+  sync                  Outbound sync control. (alias for gateway sync)
+  catalog               Signed product catalog. (alias for gateway catalog)
   help [command]        display help for command

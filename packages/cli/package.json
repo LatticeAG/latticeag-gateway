@@ -24,7 +24,7 @@
     "node": ">=20.19"
   },
   "scripts": {
-    "build": "pnpm --filter @latticeag/events --filter @latticeag/config --filter @latticeag/bus --filter @latticeag/adapter-axion --filter @latticeag/adapter-visreplay --filter @latticeag/adapter-lexverdict --filter @latticeag/adapter-vekinbox --filter @latticeag/adapter-viscompile --filter @latticeag/events-tui build && tsc",
+    "build": "pnpm --filter @latticeag/events --filter @latticeag/config --filter @latticeag/bus --filter @latticeag/core --filter @latticeag/adapter-axion --filter @latticeag/adapter-visreplay --filter @latticeag/adapter-lexverdict --filter @latticeag/adapter-vekinbox --filter @latticeag/adapter-viscompile --filter @latticeag/events-tui build && tsc",
     "test": "vitest run"
   },
   "dependencies": {
@@ -36,6 +36,7 @@
     "@latticeag/adapter-visreplay": "workspace:*",
     "@latticeag/bus": "workspace:*",
     "@latticeag/config": "workspace:*",
+    "@latticeag/core": "workspace:*",
     "@latticeag/events": "workspace:*",
     "@latticeag/events-tui": "workspace:*",
     "@latticeag/visreplay": "^1.1.1",

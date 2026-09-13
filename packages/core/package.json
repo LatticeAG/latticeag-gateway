@@ -38,6 +38,7 @@
     "zod": "^3.24.4"
   },
   "devDependencies": {
+    "@latticeag/testkit": "workspace:*",
     "@types/node": "^20.17.19",
     "typescript": "~5.8.3",
     "vitest": "^3.0.9"

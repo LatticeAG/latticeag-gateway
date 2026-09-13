@@ -10,6 +10,14 @@ import {
 export interface VersionResult {
   latticeag: string;
   packages: Record<string, string>;
+  /** §6.2 version axes, exposed separately under --json. */
+  cli: string;
+  package: string;
+  events: string;
+  config: number;
+  control: number;
+  interfaces: string;
+  native_adapter: string | null;
 }
 
 export function collectVersions(): VersionResult {
@@ -23,7 +31,17 @@ export function collectVersions(): VersionResult {
     packages["@latticeag/bus"] = bus;
   }
   Object.assign(packages, resolveAdapterVersions());
-  return { latticeag: CLI_VERSION, packages };
+  return {
+    latticeag: CLI_VERSION,
+    packages,
+    cli: CLI_VERSION,
+    package: CLI_VERSION,
+    events: events ?? "0.1.0",
+    config: 2,
+    control: 2,
+    interfaces: "interfaces/1",
+    native_adapter: null,
+  };
 }
 
 export function runVersion(json: boolean): void {

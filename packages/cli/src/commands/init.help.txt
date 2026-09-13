@@ -11,6 +11,8 @@ Options:
   --adapters <list>        Comma list of slugs to set enabled: true (default:
                            "axion,visreplay,lexverdict,vekinbox")
   --force                  Overwrite latticeag.json
+  --schema <1|2>           Config schema_version to write (choices: "1", "2",
+                           default: "2")
   --git                    Append latticeag ignore rules to .gitignore
                            (default: true)
   --no-git                 Skip gitignore edit

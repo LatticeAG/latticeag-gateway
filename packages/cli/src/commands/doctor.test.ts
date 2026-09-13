@@ -23,7 +23,7 @@ describe("latticeag doctor", () => {
   it("offline checks emit every check id after init", async () => {
     const dir = tempDir();
     const init = await runCli(
-      ["init", dir, "--template", "blank", "--adapters", "axion"],
+      ["init", dir, "--template", "blank", "--adapters", "axion", "--schema", "1"],
       { env: doctorEnv },
     );
     expect(init.status).toBe(0);
@@ -51,7 +51,7 @@ describe("latticeag doctor", () => {
   it("after init, doctor --offline exits 0 when adapters may be missing (node 20)", async () => {
     const dir = tempDir();
     const init = await runCli(
-      ["init", dir, "--template", "blank", "--adapters", "axion"],
+      ["init", dir, "--template", "blank", "--adapters", "axion", "--schema", "1"],
       { env: doctorEnv },
     );
     expect(init.status).toBe(0);

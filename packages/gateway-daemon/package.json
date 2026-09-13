@@ -22,9 +22,11 @@
     "check": "tsc --noEmit && vitest run"
   },
   "dependencies": {
+    "@latticeag/config": "workspace:*",
     "@latticeag/core": "workspace:*"
   },
   "devDependencies": {
+    "@latticeag/testkit": "workspace:*",
     "@types/node": "^24.0.0",
     "typescript": "~5.8.3",
     "vitest": "^3.0.9"

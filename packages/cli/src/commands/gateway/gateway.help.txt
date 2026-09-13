@@ -1,0 +1,37 @@
+Usage: latticeag gateway [options] [command]
+
+Gateway v2 daemon, products, and control surface.
+
+Options:
+  --config <path>             Path to latticeag.json; sets LATTICEAG_CONFIG for
+                              this process
+  --cwd <dir>                 Change working directory before config discovery
+  --json                      Machine JSON on stdout, diagnostics on stderr
+  --quiet                     No stderr except errors
+  --verbose                   Extra stderr progress
+  --no-color                  Disable ANSI color; also honors NO_COLOR
+  -V, --version               Print CLI semver and exit
+  -h, --help                  display help for command
+
+Commands:
+  start [options]             Start the gateway daemon (on-demand; no service
+                              install).
+  stop [options]              Gracefully stop the gateway daemon.
+  status [options]            Show daemon status (exit 0 READY/DEGRADED, 11
+                              absent).
+  service                     Install/manage the gateway as a user service.
+  install [options] <source>  Plan, review, and install a product.
+  uninstall [options] <slug>  Plan, review, and uninstall a product.
+  update [options] <slug>     Plan, review, and update a product to an exact
+                              version.
+  rollback [options] <slug>   Plan, review, and roll back to a retained
+                              version.
+  agent                       Agent pairing and peer management.
+  ui                          Local Web UI sessions.
+  sync                        Outbound sync control.
+  cloud                       Cloud pairing.
+  catalog                     Signed product catalog.
+  config                      Show, validate, and migrate latticeag.json.
+  approvals                   Pending and resolved approval projections.
+  receipts                    Action receipts with explicit disclosure.
+  help [command]              display help for command

@@ -38,6 +38,7 @@ export {
   ChildModeError,
   DigestError,
 } from "./errors.js";
+export * as v2 from "./v2/index.js";
 export type {
   AnyLatticeEvent,
   BeliefExtractedEvent,

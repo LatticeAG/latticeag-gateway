@@ -14,7 +14,7 @@ describe("latticeag init", () => {
   it("scaffolds a temp dir and latticeag.json parses with the config schema", async () => {
     const dir = tempDir();
     const result = await runCli(
-      ["init", dir, "--template", "blank", "--adapters", "axion"],
+      ["init", dir, "--template", "blank", "--adapters", "axion", "--schema", "1"],
       { env: { LATTICEAG_CONFIG: "" } },
     );
     expect(result.stderr, result.stderr).toBe("");
@@ -67,6 +67,8 @@ describe("latticeag init", () => {
       "--adapters",
       "viscompile",
       "--force",
+      "--schema",
+      "1",
     ]);
     expect(forced.status).toBe(0);
     const parsed = latticeagConfigSchema.parse(

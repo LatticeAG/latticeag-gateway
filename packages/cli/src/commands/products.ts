@@ -35,7 +35,7 @@ const ADAPTER_W = 10;
 
 function enabledFor(
   slug: string,
-  config: LatticeagConfig | undefined,
+  config: AdapterSectionConfig | undefined,
 ): boolean {
   if (!config) {
     return false;
@@ -48,7 +48,7 @@ function enabledFor(
 
 export function adapterStatusFor(
   product: CatalogProduct,
-  config: LatticeagConfig | undefined,
+  config: AdapterSectionConfig | undefined,
   versions: Record<string, string | undefined>,
 ): { adapter: AdapterStatus; package: string | null; package_version: string | null } {
   const pkg = product.adapter_package;
@@ -68,7 +68,7 @@ export function adapterStatusFor(
 }
 
 export function collectProductRows(
-  config: LatticeagConfig | undefined,
+  config: AdapterSectionConfig | undefined,
 ): ProductRow[] {
   const versions: Record<string, string | undefined> = {};
   for (const product of CATALOG) {
@@ -110,10 +110,15 @@ export function formatProductsText(rows: ProductRow[]): string {
   return `${lines.join("\n")}\n`;
 }
 
-function loadOptionalConfig(cwd: string): LatticeagConfig | undefined {
+/** v1 and v2 configs share the exact adapters section shape. */
+interface AdapterSectionConfig {
+  adapters: LatticeagConfig["adapters"];
+}
+
+function loadOptionalConfig(cwd: string): AdapterSectionConfig | undefined {
   try {
     const loaded = loadConfig(cwd);
-    return loaded.version === 1 ? loaded.config : undefined;
+    return { adapters: loaded.config.adapters };
   } catch (err) {
     if (err instanceof ConfigNotFoundError) {
       return undefined;
@@ -125,8 +130,15 @@ function loadOptionalConfig(cwd: string): LatticeagConfig | undefined {
 export async function runProducts(raw: {
   status?: string;
   json?: boolean;
+  quiet?: boolean;
 }): Promise<void> {
   const json = raw.json === true;
+  // §6.1 compatibility notice: `products` is the catalog-listing alias.
+  if (raw.quiet !== true) {
+    process.stderr.write(
+      "note: products is a compatibility alias for gateway catalog; it keeps the legacy columns\n",
+    );
+  }
   const status = (raw.status ?? "all") as ProductsStatusFilter;
   if (!["wired", "available", "stub", "all"].includes(status)) {
     fail(`unknown --status ${raw.status}`, {
@@ -135,7 +147,7 @@ export async function runProducts(raw: {
       code: "USAGE",
     });
   }
-  let config: LatticeagConfig | undefined;
+  let config: AdapterSectionConfig | undefined;
   try {
     config = loadOptionalConfig(process.cwd());
   } catch (err) {
@@ -169,6 +181,7 @@ export function registerProducts(program: Command): void {
       await runProducts({
         status: opts.status as string | undefined,
         json: globals.json === true,
+        quiet: globals.quiet === true,
       });
     });
   addGlobalOptions(cmd);

@@ -10,12 +10,14 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Command } from "commander";
 import { Option } from "commander";
+import { randomBytes } from "node:crypto";
 import {
   CONFIG_FILENAME,
   DEFAULT_ADAPTERS_LIST,
   LATTICEAG_CONFIG_SCHEMA_URL,
   createDefaultConfig,
   enabledAdapters,
+  migrateConfig,
   parseAdapterList,
   UnknownAdapterError,
   type AdapterName,
@@ -28,6 +30,7 @@ export interface InitResult {
   dir: string;
   config_path: string;
   template: "blank" | "demo";
+  schema_version: 1 | 2;
   adapters_enabled: string[];
   gitignore_updated: boolean;
 }
@@ -118,10 +121,19 @@ export async function runInit(
     adapters?: string;
     force?: boolean;
     git?: boolean;
+    schema?: string | number;
     json?: boolean;
   },
 ): Promise<void> {
   const json = raw.json === true;
+  const schema = raw.schema === undefined ? 2 : Number(raw.schema);
+  if (schema !== 1 && schema !== 2) {
+    fail(`--schema must be 1 or 2: ${String(raw.schema)}`, {
+      json,
+      command: "init",
+      code: "USAGE",
+    });
+  }
   const template = raw.template === "demo" ? "demo" : "blank";
   if (raw.template && raw.template !== "blank" && raw.template !== "demo") {
     fail(`unknown template: ${raw.template}`, {
@@ -182,13 +194,22 @@ export async function runInit(
 
   const projectName = path.basename(absDir);
   const config = createDefaultConfig(projectName, adapters);
-  writeFileSync(
-    configPath,
-    `${JSON.stringify(config, null, 2)}\n`.replace(
-      /https:\/\/latticeag\.dev\/schemas\/latticeag-config\/v1\.json/,
-      LATTICEAG_CONFIG_SCHEMA_URL,
-    ),
-  );
+  if (schema === 2) {
+    // §6.2 default: write the v2 document (spec §8.2 transform) with fresh
+    // workspace/instance ids. migrateConfig stamps the v2 $schema itself.
+    const workspace = `ws${randomBytes(8).toString("hex")}`;
+    const instance = `in${randomBytes(8).toString("hex")}`;
+    const v2doc = migrateConfig(config, workspace, instance);
+    writeFileSync(configPath, `${JSON.stringify(v2doc, null, 2)}\n`);
+  } else {
+    writeFileSync(
+      configPath,
+      `${JSON.stringify(config, null, 2)}\n`.replace(
+        /https:\/\/latticeag\.dev\/schemas\/latticeag-config\/v1\.json/,
+        LATTICEAG_CONFIG_SCHEMA_URL,
+      ),
+    );
+  }
 
   mkdirSync(path.join(absDir, ".latticeag"), { recursive: true });
   const gitkeep = path.join(absDir, ".latticeag", ".gitkeep");
@@ -220,6 +241,7 @@ export async function runInit(
     dir: absDir,
     config_path: configPath,
     template,
+    schema_version: schema,
     adapters_enabled: adaptersEnabled,
     gitignore_updated: gitignoreUpdated,
   };
@@ -255,6 +277,11 @@ export function registerInit(program: Command): void {
     )
     .option("--force", "Overwrite latticeag.json")
     .addOption(
+      new Option("--schema <1|2>", "Config schema_version to write")
+        .choices(["1", "2"])
+        .default("2"),
+    )
+    .addOption(
       new Option("--git", "Append latticeag ignore rules to .gitignore").default(
         true,
       ),
@@ -267,6 +294,7 @@ export function registerInit(program: Command): void {
         adapters: opts.adapters as string | undefined,
         force: opts.force === true,
         git: opts.git as boolean | undefined,
+        schema: opts.schema as string | undefined,
         json: globals.json === true,
       });
     });

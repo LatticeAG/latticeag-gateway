@@ -1,0 +1,12 @@
+Usage: latticeag gateway service [options] [command]
+
+Install/manage the gateway as a user service.
+
+Options:
+  -h, --help           display help for command
+
+Commands:
+  install [options]    Render, review, and install a service-manager unit.
+  uninstall [options]  Remove the reviewed unit only; data is preserved.
+  status [options]     Report manager install state and process readiness.
+  help [command]       display help for command

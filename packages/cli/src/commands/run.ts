@@ -30,6 +30,11 @@ import { startIngest, type IngestServer } from "../ingest.js";
 import { fail, writeJson } from "../json-envelope.js";
 import { failConfig } from "../config-fail.js";
 import {
+  ensureDaemon,
+  resolveRunClient,
+  type ControlClient,
+} from "../gateway/client.js";
+import {
   AdapterOverlayError,
   createAdapters,
   resolveRunAdapters,
@@ -39,6 +44,22 @@ import {
 
 export const WINDOWS_UNSUPPORTED =
   "latticeag run does not support windows in v0.1";
+
+/*
+ * Exit-code policy — two schemes coexist in this binary:
+ *
+ * v1 (`run`, `dev`): preserved verbatim from v0.1 — usage errors exit 1,
+ * child process failure exits 2, config discovery/validation exits 3, bus
+ * persistence failures exit 4, `--fail-on-sync` with an unresolved outbox
+ * exits 5, child signal exits 128+signal. These must NOT be remapped to the
+ * v2 table (§6.1 keeps `run`/`dev` on the legacy scheme).
+ *
+ * v2 (`gateway …` and root aliases): the §6.1 table — 2 usage, 3 config,
+ * 4 policy, 5 fail-on-sync, 6 network, 7 auth/pairing, 8 trust, 9 storage,
+ * 10 conflict, 11 busy/unavailable, 12 unsupported. The only v1 path that
+ * uses a v2 code is `--daemon required` → 11 (RUNTIME_UNAVAILABLE), which
+ * §6.1 defines for the new daemon flags themselves.
+ */
 
 export const SYNC_OUTBOX_REL = path.join(".latticeag", "sync-outbox.jsonl");
 
@@ -63,6 +84,10 @@ export interface RunFlags {
   fixtureBeliefs?: string;
   fixtureApprovals?: string;
   failOnSync: boolean;
+  /** §6.2 daemon attach policy: auto|required|off (default auto). */
+  daemon: "auto" | "required" | "off";
+  /** §6.2 sync flush budget 0..300000 (default 30000). */
+  syncTimeoutMs: number;
   json: boolean;
   verbose: boolean;
   quiet: boolean;
@@ -193,6 +218,8 @@ export interface LatticeRunContext {
   log_path_display: string;
   started_at: number;
   abort: AbortController;
+  /** Daemon control client when --daemon auto attached one. */
+  daemon?: { client: ControlClient; mode: "connected" | "started" };
 }
 
 async function shutdownRun(
@@ -274,6 +301,68 @@ export async function startLatticeRun(
     });
   }
   const session_id = flags.sessionId ?? newSessionId();
+
+  // §6.2: --daemon auto (default) gets a 1500 ms connect/start budget and
+  // then falls back to the exact v1 path; --daemon required refuses the
+  // fallback; --daemon off never touches the control socket.
+  let daemon: LatticeRunContext["daemon"];
+  if (flags.daemon !== "off") {
+    try {
+      const resolved = resolveRunClient({});
+      const attached = await ensureDaemon({
+        client: resolved.client,
+        budgetMs: 1500,
+        autostart: resolved.identity.autostart === "on-demand",
+      });
+      if (attached.mode === "unavailable") {
+        if (flags.daemon === "required") {
+          fail(
+            `--daemon required but no gateway daemon is reachable at ${resolved.socketPath}`,
+            {
+              json: flags.json,
+              command: "run",
+              code: "RUNTIME_UNAVAILABLE",
+              exitCode: 11,
+            },
+          );
+        }
+        logVerbose(flags, "no gateway daemon; continuing without attach");
+      } else {
+        daemon = { client: resolved.client, mode: attached.mode };
+      }
+    } catch (err) {
+      if (flags.daemon === "required") {
+        fail(
+          `--daemon required: ${err instanceof Error ? err.message : String(err)}`,
+          {
+            json: flags.json,
+            command: "run",
+            code: "RUNTIME_UNAVAILABLE",
+            exitCode: 11,
+          },
+        );
+      }
+      logVerbose(
+        flags,
+        `daemon attach skipped: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+  if (daemon) {
+    try {
+      await daemon.client.call("run.register", {
+        run_id,
+        kit: flags.attach,
+        owner: "cli",
+        resume: flags.runId !== undefined,
+      });
+    } catch (err) {
+      logVerbose(
+        flags,
+        `run.register failed (continuing): ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
   const log_path = resolveLogPath(loaded);
   const log_path_display = loaded.config.bus.log_path;
 
@@ -399,6 +488,7 @@ export async function startLatticeRun(
       log_path_display,
       started_at: Date.now(),
       abort,
+      ...(daemon ? { daemon } : {}),
     };
   } catch (err) {
     await stopAdapters(started).catch(() => undefined);
@@ -435,6 +525,32 @@ export async function finishLatticeRun(
     writeFileSync(path.join(dir, "child-stderr.log"), captured.stderr);
   }
 
+  // Best-effort daemon finish/flush — never changes v1 semantics; the
+  // outbox file check below stays authoritative for exit 5.
+  let daemonPending = 0;
+  if (ctx.daemon) {
+    try {
+      const flushed = await ctx.daemon.client.call<{ pending?: number; blocked?: number }>(
+        "sync.flush",
+        { streams: ["runs", "receipts", "lineage", "approvals", "watch", "mesh"], timeout_ms: flags.syncTimeoutMs },
+      );
+      daemonPending = (flushed.pending ?? 0) + (flushed.blocked ?? 0);
+    } catch {
+      daemonPending = 0;
+    }
+    try {
+      await ctx.daemon.client.call("run.finish", {
+        run_id: ctx.run_id,
+        owner: "cli",
+        exit_code: childExit,
+        signal: null,
+        spool_seq: ctx.bus.seq(),
+      });
+    } catch {
+      // the run is CLI-owned; daemon bookkeeping is advisory
+    }
+  }
+
   await shutdownRun(ctx);
 
   const result: RunResult = {
@@ -447,7 +563,7 @@ export async function finishLatticeRun(
     duration_ms: Date.now() - ctx.started_at,
   };
 
-  if (flags.failOnSync && syncOutboxNonEmpty(ctx.cwd)) {
+  if (flags.failOnSync && (syncOutboxNonEmpty(ctx.cwd) || daemonPending > 0)) {
     printRunResult(result, flags, false);
     process.exit(5);
   }
@@ -558,6 +674,30 @@ export function runFlagsFromOpts(
       code: "USAGE",
     });
   }
+  let syncTimeoutMs = 30000;
+  try {
+    const rawSync = opts.syncTimeoutMs;
+    const n = rawSync === undefined || rawSync === "" ? 30000 : Number(rawSync);
+    if (!Number.isInteger(n) || n < 0 || n > 300000) {
+      throw new Error("--sync-timeout-ms must be 0..300000");
+    }
+    syncTimeoutMs = n;
+  } catch (err) {
+    fail(err instanceof Error ? err.message : String(err), {
+      json: globals.json === true,
+      command: "run",
+      code: "USAGE",
+    });
+  }
+  // --no-daemon surfaces as daemon === false; --daemon <mode> otherwise.
+  const daemonRaw = opts.daemon === false ? "off" : String(opts.daemon ?? "auto");
+  if (daemonRaw !== "auto" && daemonRaw !== "required" && daemonRaw !== "off") {
+    fail(`--daemon must be auto|required|off: ${daemonRaw}`, {
+      json: globals.json === true,
+      command: "run",
+      code: "USAGE",
+    });
+  }
   const json = globals.json === true;
   return {
     cmd: String(opts.cmd ?? ""),
@@ -570,6 +710,8 @@ export function runFlagsFromOpts(
     fixtureBeliefs: opts.fixtureBeliefs as string | undefined,
     fixtureApprovals: opts.fixtureApprovals as string | undefined,
     failOnSync: opts.failOnSync === true,
+    daemon: daemonRaw,
+    syncTimeoutMs,
     json,
     verbose: globals.verbose === true,
     quiet: globals.quiet === true,
@@ -601,7 +743,18 @@ export function addRunOptions(cmd: Command): Command {
     .option("--session-id <id>", "Sets x-axion-session and LATTICEAG_SESSION_ID")
     .option("--fixture-beliefs <path>", "Axion adapter reads fixtures instead of webhook")
     .option("--fixture-approvals <path>", "VekInbox adapter reads fixtures")
-    .option("--fail-on-sync", "Exit 5 if sync outbox remains non-empty");
+    .option("--fail-on-sync", "Exit 5 if sync outbox remains non-empty")
+    .addOption(
+      new Option("--daemon <auto|required|off>", "Gateway daemon attach policy")
+        .choices(["auto", "required", "off"])
+        .default("auto"),
+    )
+    .option("--no-daemon", "Alias for --daemon off")
+    .option(
+      "--sync-timeout-ms <n>",
+      "Daemon sync flush budget 0..300000",
+      "30000",
+    );
   return cmd;
 }
 

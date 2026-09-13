@@ -8,6 +8,7 @@ import { registerEvents } from "./commands/events.js";
 import { registerDoctor } from "./commands/doctor.js";
 import { registerProducts } from "./commands/products.js";
 import { registerVersion } from "./commands/version.js";
+import { registerGateway } from "./commands/gateway/index.js";
 
 const TAGLINE =
   "The LatticeAG stack as one command. Every product event, one schema.";
@@ -17,7 +18,11 @@ export function buildProgram(): Command {
   program
     .name("latticeag")
     .description(TAGLINE)
-    .version(CLI_VERSION, "-V, --version", "Print CLI semver and exit");
+    .version(CLI_VERSION, "-V, --version", "Print CLI semver and exit")
+    // §6.2 leaves carry their own --version <exact> flags (install,
+    // catalog show/pin); positional options keep the root -V,--version
+    // from swallowing a subcommand's --version argument.
+    .enablePositionalOptions();
 
   addGlobalOptions(program, false);
 
@@ -32,6 +37,7 @@ export function buildProgram(): Command {
   registerDoctor(program);
   registerProducts(program);
   registerVersion(program);
+  registerGateway(program);
 
   return program;
 }

@@ -16,6 +16,9 @@ export default defineConfig({
       "@latticeag/config": fileURLToPath(
         new URL("../config/src/index.ts", import.meta.url),
       ),
+      "@latticeag/testkit": fileURLToPath(
+        new URL("../testkit/src/index.ts", import.meta.url),
+      ),
       "@latticeag/adapter-axion/redact": fileURLToPath(
         new URL("../adapters/axion/src/redact.ts", import.meta.url),
       ),
