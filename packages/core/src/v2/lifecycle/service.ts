@@ -154,7 +154,13 @@ export function createProductService(
   };
 
   const checkReview = (review: NativeRef): void => {
-    if (typeof review !== "object" || review === null) {
+    // §3.3 wire form: the review commitment is a 64-hex content hash of the
+    // operator review document ({method,params,operator,expires_ms}); a full
+    // NativeRef object is equally acceptable.
+    const ok =
+      (typeof review === "string" && /^[0-9a-f]{64}$/.test(review)) ||
+      (typeof review === "object" && review !== null);
+    if (!ok) {
       throw new RpcError(
         "POLICY_DENIED",
         "commit requires an explicit review ref matched to the plan",
@@ -258,9 +264,30 @@ export function createProductService(
             field: "source",
           });
         }
+        const slug = m[1]!;
+        // §5.3: the uninstall plan binds the release being removed — its
+        // manifest/archive/grants name what will leave the machine.
+        let target: { manifest: ProductManifest; manifestDigest: Hash } | undefined;
+        const installedGen = ports.productRegistry.active(slug);
+        if (installedGen !== undefined) {
+          try {
+            const fetched = await ports.catalog.fetch({
+              slug,
+              version: installedGen.version,
+            });
+            const manifestBytes = manifestBlobBytes(fetched.release.manifest);
+            target = {
+              manifest: parseProductManifest(manifestBytes),
+              manifestDigest: manifestDigestOf(manifestBytes) as Hash,
+            };
+          } catch {
+            target = undefined; // sideloaded release: plan against registry rows
+          }
+        }
         const resolved = resolvePlan({
           kind: "uninstall",
-          source: m[1]!,
+          source: slug,
+          target,
           manifests: new Map(),
           index,
           installed,
@@ -395,12 +422,19 @@ export function createProductService(
         }
       }
       const manifest = engine.manifestFor(p.slug, gen.generation);
+      // §3.1: `sandbox` is the enforcement status, not the manifest's
+      // declared kind — "enforced" when the generation runs under a
+      // policy-admitted sandbox kind.
+      const sandboxKind = manifest?.runtime.sandbox;
+      const enforced =
+        sandboxKind !== undefined &&
+        ports.policy().sandboxes.includes(sandboxKind);
       return {
         slug: p.slug,
         state: gen.state,
         liveness,
         readiness,
-        sandbox: manifest?.runtime.sandbox ?? "linux-ns",
+        sandbox: enforced ? "enforced" : "unavailable",
         native,
       };
     },
