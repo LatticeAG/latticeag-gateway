@@ -219,15 +219,20 @@ export interface LatticeRunContext {
   started_at: number;
   abort: AbortController;
   /** Daemon control client when --daemon auto attached one. */
-  daemon?: { client: ControlClient; mode: "connected" | "started" };
+  daemon?: {
+    client: ControlClient;
+    mode: "connected" | "started";
+    heartbeat?: ReturnType<typeof setInterval>;
+  };
 }
 
 async function shutdownRun(
   ctx: Pick<
     LatticeRunContext,
-    "cwd" | "adapters" | "ingest" | "bus"
+    "cwd" | "adapters" | "ingest" | "bus" | "daemon"
   >,
 ): Promise<void> {
+  if (ctx.daemon?.heartbeat) clearInterval(ctx.daemon.heartbeat);
   await stopAdapters(ctx.adapters);
   await ctx.ingest.close().catch(() => undefined);
   await ctx.bus.close().catch(() => undefined);
@@ -362,6 +367,19 @@ export async function startLatticeRun(
         `run.register failed (continuing): ${err instanceof Error ? err.message : String(err)}`,
       );
     }
+    // Advisory 10 s heartbeat while attached (§6.4): best-effort, never
+    // blocks the run, and unref'd so it cannot hold the CLI open.
+    const client = daemon.client;
+    daemon.heartbeat = setInterval(() => {
+      void client
+        .call("run.heartbeat", {
+          run_id,
+          owner: "cli",
+          spool_seq: String(bus.seq()),
+        })
+        .catch(() => {});
+    }, 10_000);
+    daemon.heartbeat.unref();
   }
   const log_path = resolveLogPath(loaded);
   const log_path_display = loaded.config.bus.log_path;
@@ -544,7 +562,7 @@ export async function finishLatticeRun(
         owner: "cli",
         exit_code: childExit,
         signal: null,
-        spool_seq: ctx.bus.seq(),
+        spool_seq: String(ctx.bus.seq()),
       });
     } catch {
       // the run is CLI-owned; daemon bookkeeping is advisory

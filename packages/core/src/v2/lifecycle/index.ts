@@ -96,6 +96,13 @@ export type {
   SpawnRecord,
   StubScript,
 } from "./testing.js";
+export { checkSunlightHandoff, VISLINEAGE_BUNDLE_FORMAT } from "./handoff.js";
+export type {
+  HandoffCheckInput,
+  HandoffMismatch,
+  SunlightHandoff,
+  VislineageEvidenceRef,
+} from "./handoff.js";
 export { createProductService } from "./service.js";
 export type {
   ProductServiceBundle,

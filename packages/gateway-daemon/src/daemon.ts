@@ -56,17 +56,12 @@ import {
 } from "./rpc/dispatch.js";
 import {
   InMemoryPeerTokenStore,
-  SessionStore,
   type PeerTokenStore,
-  type SessionRole,
   type TransportCredentials,
 } from "./rpc/auth.js";
 import {
-  AuditReceiptWriter,
   Metrics,
   RegistryIdempotency,
-  SseSubscriptions,
-  StoreSseSource,
   loadOrCreateAuditKey,
   nextSessionEpoch,
   readEndpoints,
@@ -75,6 +70,16 @@ import {
   type DaemonState,
   type EndpointsFile,
 } from "./runtime.js";
+import {
+  DurableBridgeSessions,
+  DurableSseRegistry,
+  DurableSseSource,
+} from "./adapters/bridge-state.js";
+import { CoreReceiptWriter } from "./adapters/receipt-writer.js";
+import { ProductProcessSupervisor } from "./supervisor.js";
+import { wireServices, type WiredRuntime } from "./wiring.js";
+import type { ServiceContext } from "../../core/dist/v2/platform/ports.js";
+import type { Principal } from "../../core/dist/v2/protocol/services.js";
 import {
   RpcError,
   type GatewayServices,
@@ -98,10 +103,13 @@ export interface GatewayDaemonOptions {
   config?: unknown;
   /** Extra/partial service implementations merged over the built-ins. */
   services?: Partial<GatewayServices>;
-  /** Peer token store; defaults to an empty in-memory store. */
+  /**
+   * Peer token store override (tests); defaults to the durable
+   * registry-backed store built from the opened `GatewayStore`.
+   */
   peers?: PeerTokenStore;
-  /** Product supervisor; absent ⇒ no daemon-owned products. */
-  supervisor?: ProductSupervisor;
+  /** Product supervisor; absent ⇒ the default process supervisor. */
+  supervisor?: ProductProcessSupervisor;
   /** Override the bridge port (0 → ephemeral); defaults to config.ui.port. */
   bridgePort?: number;
   /** Force-enable/disable the bridge regardless of config.ui.enabled. */
@@ -150,13 +158,16 @@ export class GatewayDaemon {
   private configDir = "";
   private configRevision = 1;
   private epoch = "";
-  private readonly sessions = new SessionStore();
+  /** Memory-only CSRF mirror: session-token-hash → csrf (spec §3.3). */
+  private readonly csrfMirror = new Map<string, string>();
+  private bridgeSessions: DurableBridgeSessions | null = null;
   private peers: PeerTokenStore = new InMemoryPeerTokenStore();
-  private receipts: AuditReceiptWriter | null = null;
+  private receipts: CoreReceiptWriter | null = null;
   private readonly metrics = new Metrics();
-  private readonly sseSubs = new SseSubscriptions();
-  private sseSource: StoreSseSource | null = null;
-  private supervisor: ProductSupervisor | null = null;
+  private sseRegistry: DurableSseRegistry | null = null;
+  private sseSource: DurableSseSource | null = null;
+  private runtime: WiredRuntime | null = null;
+  private supervisor: ProductProcessSupervisor | null = null;
   private extraServices: Partial<GatewayServices> = {};
   private inflight = 0;
   private inflightWaiters: Array<() => void> = [];
@@ -179,14 +190,9 @@ export class GatewayDaemon {
   /** Resolved endpoint info after a successful start (null before). */
   endpoint: EndpointsFile | null = null;
 
-  /** Session store (tests reach in to create bootstraps/sessions). */
-  get sessionStore(): SessionStore {
-    return this.sessions;
-  }
-
-  /** The SSE subscription registry (tests/events service populate it). */
-  get subscriptions(): SseSubscriptions {
-    return this.sseSubs;
+  /** The wired services aggregate (null until the store is open). */
+  get servicesRuntime(): WiredRuntime | null {
+    return this.runtime;
   }
 
   // ── start ────────────────────────────────────────────────────────────
@@ -201,8 +207,6 @@ export class GatewayDaemon {
     if (!checked.valid) throw new ConfigValidationError(checked.errors);
     this.config = raw as LatticeagConfigV2;
     this.configDir = opts.configDir;
-    this.supervisor = opts.supervisor ?? null;
-    if (opts.peers !== undefined) this.peers = opts.peers;
     this.extraServices = opts.services ?? {};
 
     const stateRoot = resolve(this.configDir, this.config.storage.root);
@@ -224,17 +228,47 @@ export class GatewayDaemon {
         instance: this.instance,
       });
 
-      // 4. Derived state: session epoch, audit chain head, receipt writer.
-      this.epoch = nextSessionEpoch(this.store);
+      // 4. Derived state + the full service wiring. The epoch bumps once
+      //    per boot and stamps sessions/bootstraps/peer grants so none
+      //    survive a restart.
       const auditKey = await loadOrCreateAuditKey(join(runtimeDir, "keys"));
-      this.receipts = new AuditReceiptWriter(this.store, auditKey, {
-        workspace: this.workspace,
-        stream: "audit",
-        partition: "audit",
-        source: this.instance,
+      this.epoch = nextSessionEpoch(this.store);
+      this.supervisor = opts.supervisor ?? new ProductProcessSupervisor();
+      this.runtime = wireServices({
+        store: this.store,
+        config: this.config,
+        configDir: this.configDir,
+        stateRoot,
+        auditKey,
+        epoch: this.epoch,
+        supervisor: this.supervisor,
+        uiEndpoint: () => this.endpoint?.ui_url ?? null,
+        onStop: (graceMs) => {
+          setTimeout(() => void this.stop(graceMs), 25).unref();
+        },
       });
-      await this.receipts.resume();
-      this.sseSource = new StoreSseSource(this.store);
+      if (opts.peers !== undefined) this.peers = opts.peers;
+      else this.peers = this.runtime.ports.peerTokens;
+      this.receipts = new CoreReceiptWriter(this.store, {
+        receiptWorkspace: this.runtime.platformPorts.receiptWorkspace,
+        auditSource: this.runtime.platformPorts.auditSource,
+        auditKey: this.runtime.platformPorts.auditKey,
+        newId: this.runtime.platformPorts.newId,
+        store: this.runtime.platformPorts.store,
+      });
+      this.sseRegistry = new DurableSseRegistry(this.store.registry);
+      this.sseSource = new DurableSseSource(this.store);
+      this.bridgeSessions = new DurableBridgeSessions({
+        registry: this.store.registry,
+        epoch: this.epoch,
+        csrf: this.csrfMirror,
+      });
+      // Replay-based crash recovery for product generations (daemon-owned
+      // children from a prior boot get their liveness re-probed; dead
+      // ones transition honestly).
+      await this.runtime.product.engine
+        .recoverAfterCrash()
+        .catch(() => {});
 
       // 5a. Control socket (§1.2).
       const socketPath =
@@ -264,7 +298,7 @@ export class GatewayDaemon {
           instance: this.instance,
           staticDir:
             opts.staticDir === undefined ? defaultStaticDir() : opts.staticDir,
-          sse: { registry: this.sseSubs, source: this.sseSource! },
+          sse: { registry: this.sseRegistry!, source: this.sseSource! },
           onRpc: (body, creds) =>
             this.dispatch({ body, transport: "bridge", credentials: creds }),
           onHealth: () => ({
@@ -280,14 +314,14 @@ export class GatewayDaemon {
         });
         const v4 = await createBridgeListener("127.0.0.1", port, {
           ...mk(),
-          sessions: this.sessions,
+          sessions: this.bridgeSessions!,
         });
         this.bridges.push(v4);
         if (this.config.gateway.ui.ipv6) {
           this.bridges.push(
             await createBridgeListener("::1", v4.port, {
               ...mk(),
-              sessions: this.sessions,
+              sessions: this.bridgeSessions!,
             }),
           );
         }
@@ -338,7 +372,9 @@ export class GatewayDaemon {
       instance: this.instance,
       workspace: this.workspace,
       epoch: this.epoch,
-      services: { ...this.builtInServices(), ...this.extraServices },
+      services: this.mergedServices(null),
+      bindServices: ({ principal, requestId }) =>
+        this.mergedServices({ principal, requestId }),
       peers: this.peers,
       receipts: this.receipts,
       idempotency:
@@ -358,11 +394,69 @@ export class GatewayDaemon {
 
   // ── built-in services ────────────────────────────────────────────────
 
-  private builtInServices(): Partial<GatewayServices> {
+  /**
+   * The full service map for one dispatch. The wired aggregate supplies
+   * every domain; the daemon's own `daemon` group wins (its hello/status/
+   * stop carry daemon-local truth the core service cannot know), and
+   * `ui.sessionExchange` is wrapped to mirror the issued CSRF into the
+   * memory-only map the bridge checks. `extraServices` overrides last —
+   * the test seam.
+   */
+  private mergedServices(
+    ctx: { principal: Principal; requestId: string } | null,
+  ): Partial<GatewayServices> {
+    const bound: Partial<GatewayServices> =
+      this.runtime !== null
+        ? this.runtime.bindServices(
+            ctx !== null
+              ? ({ principal: ctx.principal, requestId: ctx.requestId } as ServiceContext)
+              : ({
+                  principal: {
+                    id: "local",
+                    role: "local_operator",
+                  } as Principal,
+                } as ServiceContext),
+          )
+        : {};
+    if (bound.ui !== undefined) {
+      const inner = bound.ui;
+      bound.ui = {
+        ...inner,
+        sessionExchange: async (params: { bootstrap: string }) => {
+          const r = await inner.sessionExchange(params);
+          this.bridgeSessions?.noteCsrf(r.session, r.csrf);
+          return r;
+        },
+      };
+    }
+    if (bound.product !== undefined && ctx !== null && this.runtime !== null) {
+      // Record which principal launched each lifecycle operation so the
+      // durable operations projection carries the real actor, not "local".
+      const product = bound.product;
+      const runtime = this.runtime;
+      const principal = ctx.principal.id;
+      const wrapped = {} as Record<
+        string,
+        (params: unknown) => Promise<unknown>
+      >;
+      for (const [k, fn] of Object.entries(product)) {
+        wrapped[k] = async (params: unknown) => {
+          const r = await (fn as (p: unknown) => Promise<unknown>).call(
+            product,
+            params,
+          );
+          const op = (r as { operation?: unknown } | null)?.operation;
+          if (typeof op === "string") runtime.noteOperationCaller(op, principal);
+          return r;
+        };
+      }
+      bound.product =
+        wrapped as unknown as GatewayServices["product"];
+    }
     return {
+      ...bound,
       daemon: this.daemonService(),
-      config: this.configService(),
-      ui: this.uiService(),
+      ...this.extraServices,
     };
   }
 
@@ -400,7 +494,7 @@ export class GatewayDaemon {
         state: this.state_,
         config_revision: String(this.readConfigRevision()),
         products: this.supervisor?.count() ?? 0,
-        peers: 0,
+        peers: this.store?.registry.countPeers() ?? 0,
         ui: this.endpoint?.ui_url ?? null,
       }),
       stop: async (params) => {
@@ -428,117 +522,11 @@ export class GatewayDaemon {
   }
 
   private readConfigRevision(): number {
-    const raw = this.store?.kv.get("config_revision");
+    const raw =
+      this.store?.registry.kvGet("config:revision") ??
+      this.store?.kv.get("config_revision");
     const n = raw !== null && raw !== undefined ? Number(raw) : this.configRevision;
     return Number.isInteger(n) && n > 0 ? n : this.configRevision;
-  }
-
-  private readConfigDocument(): unknown {
-    const raw = this.store?.kv.get("config_document");
-    if (raw === null || raw === undefined) return this.config;
-    try {
-      return JSON.parse(raw);
-    } catch {
-      return this.config;
-    }
-  }
-
-  private configService(): GatewayServices["config"] {
-    return {
-      get: async () => ({
-        document: this.readConfigDocument() as JsonObject,
-        revision: String(this.readConfigRevision()),
-      }),
-      validate: async (params) => {
-        const p = params as { document?: unknown };
-        const r = validateConfigV2Semantics(p.document);
-        return { valid: r.valid, errors: r.errors as unknown as Json[] };
-      },
-      apply: async (params) => {
-        const p = params as {
-          document?: unknown;
-          expected_revision?: unknown;
-        };
-        const current = this.readConfigRevision();
-        if (
-          p.expected_revision !== undefined &&
-          String(p.expected_revision) !== String(current)
-        ) {
-          throw new RpcError("REVISION_CONFLICT", "config revision mismatch", {
-            field: "expected_revision",
-          });
-        }
-        const r = validateConfigV2Semantics(p.document);
-        if (!r.valid) {
-          throw new RpcError(
-            "SCHEMA_INVALID",
-            r.errors.map((e) => `${e.path}: ${e.message}`).join("; "),
-            { field: "document" },
-          );
-        }
-        const next = current + 1;
-        this.store?.kv.set("config_document", JSON.stringify(p.document));
-        this.store?.kv.set("config_revision", String(next));
-        this.configRevision = next;
-        this.config = p.document as LatticeagConfigV2;
-        return { revision: String(next), restart_required: false };
-      },
-    };
-  }
-
-  private uiService(): GatewayServices["ui"] {
-    return {
-      sessionCreate: async (params) => {
-        const p = params as { role?: unknown };
-        if (p.role !== "viewer" && p.role !== "operator") {
-          throw new RpcError("SCHEMA_INVALID", "role must be viewer|operator", {
-            field: "role",
-          });
-        }
-        const b = this.sessions.createBootstrap(p.role as SessionRole);
-        const port = this.endpoint?.ui_url
-          ? new URL(this.endpoint.ui_url).port
-          : String(this.config?.gateway.ui.port ?? 9848);
-        return {
-          bootstrap: b.bootstrap,
-          url: `http://127.0.0.1:${port}/#bootstrap=${b.bootstrap}`,
-          expires_ms: b.expires_ms,
-        };
-      },
-      sessionExchange: async (params) => {
-        const p = params as { bootstrap?: unknown };
-        if (typeof p.bootstrap !== "string") {
-          throw new RpcError(
-            "SCHEMA_INVALID",
-            "bootstrap must be a token string",
-            { field: "bootstrap" },
-          );
-        }
-        const session = this.sessions.exchange(p.bootstrap);
-        if (session === null) {
-          throw new RpcError(
-            "AUTH_REQUIRED",
-            "bootstrap is unknown, used, or expired",
-          );
-        }
-        return {
-          session: session.id,
-          csrf: session.csrf,
-          role: session.role,
-          expires_ms: session.absolute_expires_ms,
-        };
-      },
-      sessionRevoke: async (params) => {
-        const p = params as { session?: unknown };
-        if (typeof p.session !== "string") {
-          throw new RpcError("SCHEMA_INVALID", "session must be a string", {
-            field: "session",
-          });
-        }
-        this.sessions.revoke(p.session);
-        return { session: p.session, state: "REVOKED" as const };
-      },
-    };
   }
 
   // ── stop / teardown ──────────────────────────────────────────────────
@@ -578,9 +566,15 @@ export class GatewayDaemon {
       await this.control.close().catch(() => {});
       this.control = null;
     }
+    // Lifecycle engine: stops probes and daemon-owned children first so
+    // nothing writes through a closing store.
+    if (this.runtime !== null) {
+      await this.runtime.product.engine.close().catch(() => {});
+    }
     // Supervisor: daemon-owned products only (SIGTERM→SIGKILL 5 s).
     if (this.supervisor !== null) {
       await this.supervisor.shutdownAll(SUPERVISOR_KILL_MS).catch(() => {});
+      this.supervisor = null;
     }
     if (this.store !== null) {
       await this.store.close().catch(() => {});

@@ -10,6 +10,7 @@ import {
 import type { StateLayout } from "./layout.js";
 import {
   LaneWriter,
+  formatCursor,
   parseCursor,
   readSegmentSlice,
   segmentOrdinalOf,
@@ -69,6 +70,33 @@ export interface ScannedRecord {
   /** Record payload bytes (LF stripped). */
   data: Buffer;
   locator: IndexedLocator;
+  /** Global monotone commit order across all lanes (1-based). */
+  order: number;
+}
+
+/** Head metadata of one lane (created lanes that never committed stay empty). */
+export interface LaneHeadInfo {
+  /** 16-hex lane ordinal. */
+  laneOrdinal: string;
+  /** Ordinal the next record in this lane will receive (1-based). */
+  nextRecordOrdinal: number;
+  /** Global commit order of the lane's head record, or 0 when empty. */
+  headOrder: number;
+  /** Head record's cursor, or null for an empty lane. */
+  headCursor: string | null;
+  /** First retained record ordinal (1 = full retention). */
+  floorOrdinal: number;
+}
+
+/** Result of resolving a transport cursor against committed lanes. */
+export interface CursorResolution {
+  lane: string;
+  /** Record ordinal inside the lane. */
+  ordinal: number;
+  /** Global commit order (-1 for pruned interior positions). */
+  order: number;
+  /** False when the ordinal fell under the lane's retention floor. */
+  retained: boolean;
 }
 
 export interface OpenOptions {
@@ -123,6 +151,7 @@ export class GatewayStore {
   private readonly laneCommitted: Map<string, Map<string, CommittedSegment>>;
   private readonly writers = new Map<string, LaneWriter>();
   private nextLaneOrdinal: bigint;
+  private recordOrder: number;
   private state: StoreStatus;
   private readOnly: { at: string; reason: string } | null;
   private readonly opts: Required<Omit<OpenOptions, "instance">>;
@@ -159,6 +188,17 @@ export class GatewayStore {
     this.nextLaneOrdinal = ctx.nextLaneOrdinal;
     this.readOnly = ctx.readOnly;
     this.state = this.readOnly === null ? "READY" : "READ_ONLY";
+    // The global record-order counter resumes where the recovered index
+    // ended — buildLaneIndex assigns order 1..N across committed markers.
+    let order = 0;
+    for (const li of ctx.laneIndex.values()) {
+      for (const seg of li.segments.values()) {
+        for (const loc of seg.locators) {
+          if (loc.order > order) order = loc.order;
+        }
+      }
+    }
+    this.recordOrder = order;
     this.opts = opts;
     this.instance = instance;
   }
@@ -305,6 +345,34 @@ export class GatewayStore {
     return { tx: marker.tx, cursors, records, objects };
   }
 
+  /**
+   * Synchronous mutation-only commit: no lane records, no objects — just
+   * the journal marker (fdatasync) + the registry apply, in §2.3 order.
+   * Backs synchronous port contracts (peer/session/approval stores) whose
+   * callers cannot await; never used for evidence-carrying lane writes.
+   */
+  commitSync(input: { mutation: Json; result_sha256: string }): { tx: string } {
+    if (this.closedFlag) throw storeError("CORRUPT", "store is closed");
+    if (this.readOnly !== null) {
+      throw storeError("READ_ONLY", "store is read-only", this.readOnly);
+    }
+    if (!isHex64(input.result_sha256)) {
+      throw storeError("BAD_RECORD", "result_sha256 must be 64 lowercase hex");
+    }
+    if (typeof input.mutation !== "object" || input.mutation === null) {
+      throw storeError("MUTATION_UNKNOWN", "mutation must be a reducer input object");
+    }
+    const marker = this.journal.nextMarker({
+      records: [],
+      objects: [],
+      mutation: input.mutation,
+      result_sha256: input.result_sha256,
+    });
+    this.journal.appendSync(marker);
+    this.registry.applyCommit(marker);
+    return { tx: marker.tx };
+  }
+
   /** Append a locator to the in-memory committed index. */
   private indexRecord(rec: RecordLocator, cursor: string): void {
     let li = this.laneIndex.get(rec.lane);
@@ -328,8 +396,9 @@ export class GatewayStore {
       li.segments.set(rec.segment, seg);
     }
     li.totalRecords += 1;
+    this.recordOrder += 1;
     const ord = Number(parseCursor(cursor)?.recordOrdinal ?? li.totalRecords);
-    seg.locators.push({ ...rec, cursor, ordinal: ord });
+    seg.locators.push({ ...rec, cursor, ordinal: ord, order: this.recordOrder });
     seg.locators.sort((a, b) => a.offset - b.offset);
     seg.end = Math.max(seg.end, rec.offset + rec.length);
     const comm =
@@ -424,9 +493,118 @@ export class GatewayStore {
           });
         }
         yielded += 1;
-        yield { cursor: loc.cursor, data: raw.subarray(0, raw.length - 1), locator: loc };
+        yield {
+          cursor: loc.cursor,
+          data: raw.subarray(0, raw.length - 1),
+          locator: loc,
+          order: loc.order,
+        };
       }
     }
+  }
+
+  /** Head metadata of one lane; unknown lanes report an empty head. */
+  async laneHead(laneKey: string): Promise<LaneHeadInfo> {
+    const li = this.laneIndex.get(laneKey);
+    const ordinal = li?.ordinal ?? this.laneOrdinals.get(laneKey) ?? 0n;
+    let head: IndexedLocator | null = null;
+    let floor = 1;
+    if (li !== undefined) {
+      for (const seg of li.segments.values()) {
+        for (const loc of seg.locators) {
+          if (head === null || loc.ordinal > head.ordinal) head = loc;
+        }
+        if (seg.locators.length > 0) {
+          const min = seg.locators.reduce(
+            (a, b) => (a.ordinal < b.ordinal ? a : b),
+            seg.locators[0]!,
+          );
+          if (min.ordinal > 0) floor = Math.min(floor, min.ordinal);
+        }
+      }
+    }
+    return {
+      laneOrdinal: ordinal.toString(16).padStart(16, "0"),
+      nextRecordOrdinal: head === null ? floor : head.ordinal + 1,
+      headOrder: head?.order ?? 0,
+      headCursor: head === null || head.cursor === "" ? null : head.cursor,
+      floorOrdinal: floor,
+    };
+  }
+
+  /**
+   * Resolve a transport cursor to lane/ordinal/global-order. Null when the
+   * lane or ordinal was never committed; `retained:false` marks positions
+   * below the retention floor or inside a pruned interior hole.
+   */
+  async resolveCursor(cursor: string): Promise<CursorResolution | null> {
+    const parsed = parseCursor(cursor);
+    if (parsed === null) return null;
+    for (const li of this.laneIndex.values()) {
+      if (li.ordinal !== parsed.laneOrdinal) continue;
+      const ordinal = Number(parsed.recordOrdinal);
+      if (ordinal === 0) {
+        return { lane: li.lane, ordinal: 0, order: 0, retained: true };
+      }
+      let head: IndexedLocator | null = null;
+      let floor = Number.MAX_SAFE_INTEGER;
+      for (const seg of li.segments.values()) {
+        for (const loc of seg.locators) {
+          if (BigInt(loc.ordinal) === parsed.recordOrdinal) {
+            return {
+              lane: li.lane,
+              ordinal,
+              order: loc.order,
+              retained: true,
+            };
+          }
+          if (head === null || loc.ordinal > head.ordinal) head = loc;
+          if (loc.ordinal > 0 && loc.ordinal < floor) floor = loc.ordinal;
+        }
+      }
+      const floorOrdinal = floor === Number.MAX_SAFE_INTEGER ? 1 : floor;
+      if (head !== null && ordinal > head.ordinal) return null;
+      if (ordinal < floorOrdinal || head !== null) {
+        return { lane: li.lane, ordinal, order: -1, retained: false };
+      }
+      return null;
+    }
+    return null;
+  }
+
+  /** The cursor the next record of `lane` would receive, if knowable. */
+  async peekNextCursor(laneKey: string): Promise<string | null> {
+    const li = this.laneIndex.get(laneKey);
+    if (li === undefined) return null;
+    const head = await this.laneHead(laneKey);
+    return formatCursor(li.ordinal, head.nextRecordOrdinal);
+  }
+
+  /**
+   * Global commit frontier: highest committed record order across lanes
+   * and its cursor (null cursor when nothing is committed).
+   */
+  async globalHead(): Promise<{ order: number; cursor: string | null }> {
+    let best: { order: number; cursor: string } | null = null;
+    for (const li of this.laneIndex.values()) {
+      for (const seg of li.segments.values()) {
+        for (const loc of seg.locators) {
+          if (
+            loc.cursor !== "" &&
+            (best === null || loc.order > best.order)
+          ) {
+            best = { order: loc.order, cursor: loc.cursor };
+          }
+        }
+      }
+    }
+    return best === null ? { order: 0, cursor: null } : best;
+  }
+
+  /** Read one retained committed record's bytes by its cursor. */
+  async getRecord(cursor: string): Promise<Uint8Array | null> {
+    const rec = await this.readCursor(cursor);
+    return rec === null ? null : rec.data;
   }
 
   /** Resolve one cursor to its committed record; null when unknown. */
@@ -449,7 +627,12 @@ export class GatewayStore {
             offset: loc.offset,
           });
         }
-        return { cursor: loc.cursor, data: raw.subarray(0, raw.length - 1), locator: loc };
+        return {
+          cursor: loc.cursor,
+          data: raw.subarray(0, raw.length - 1),
+          locator: loc,
+          order: loc.order,
+        };
       }
       return null;
     }

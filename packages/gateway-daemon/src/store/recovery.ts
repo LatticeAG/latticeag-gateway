@@ -22,6 +22,12 @@ export interface IndexedLocator extends RecordLocator {
   cursor: string;
   /** Global record ordinal within the lane (1-based). */
   ordinal: number;
+  /**
+   * Global monotone commit order across all lanes (1-based; 0 when the
+   * record's ordinal could not be derived during recovery). Deterministically
+   * equal to the writer-assigned order on rebuild.
+   */
+  order: number;
 }
 
 export interface LaneIndexSegment {
@@ -188,6 +194,9 @@ export function buildLaneIndex(
 ): { index: Map<string, LaneIndex>; corrupt: RecoveryCorrupt[] } {
   const index = new Map<string, LaneIndex>();
   const corrupt: RecoveryCorrupt[] = [];
+  // Global commit order: each newly committed record takes the next
+  // position, matching the live writer's running counter.
+  let orderCounter = 0;
   for (const marker of markers) {
     for (const rec of marker.records) {
       let li = index.get(rec.lane);
@@ -240,10 +249,12 @@ export function buildLaneIndex(
       );
       if (seen) continue;
       li.totalRecords += 1;
+      orderCounter += 1;
       seg.locators.push({
         ...rec,
         ordinal,
         cursor: ordinal > 0 ? formatCursor(li.ordinal, ordinal) : "",
+        order: orderCounter,
       });
       seg.end = Math.max(seg.end, rec.offset + rec.length);
     }
@@ -337,6 +348,7 @@ export async function recoverStoreContext(
     registry = Registry.open(lay.registryPath, {
       instance: opts.instance,
       resolveCursor: (rec) => lookupCursor(laneIndex, rec),
+      resolveRecord: (rec) => lookupIndexed(laneIndex, rec),
     });
   } catch {
     // Corrupt sqlite: it is a derived index — preserve evidence, rebuild.
@@ -354,6 +366,7 @@ export async function recoverStoreContext(
     registry = Registry.open(lay.registryPath, {
       instance: opts.instance,
       resolveCursor: (rec) => lookupCursor(laneIndex, rec),
+      resolveRecord: (rec) => lookupIndexed(laneIndex, rec),
     });
   }
 
@@ -420,11 +433,20 @@ function lookupCursor(
   index: Map<string, LaneIndex>,
   rec: RecordLocator,
 ): string | null {
+  const loc = lookupIndexed(index, rec);
+  return loc !== null && loc.cursor !== "" ? loc.cursor : null;
+}
+
+/** Full indexed-locator resolution (cursor + ordinal + global order). */
+function lookupIndexed(
+  index: Map<string, LaneIndex>,
+  rec: RecordLocator,
+): IndexedLocator | null {
   const seg = index.get(rec.lane)?.segments.get(rec.segment);
   const loc = seg?.locators.find(
     (l) => l.offset === rec.offset && l.length === rec.length,
   );
-  return loc !== undefined && loc.cursor !== "" ? loc.cursor : null;
+  return loc !== undefined && loc.cursor !== "" ? loc : null;
 }
 
 /** Standalone recovery pass; returns only the report. */

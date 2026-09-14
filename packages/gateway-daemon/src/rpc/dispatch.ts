@@ -93,6 +93,11 @@ export interface ReceiptWriter {
       requestHash: string;
       makeResultJson: (receipt: ReceiptPointer) => string;
     } | null,
+    /**
+     * Already-scrubbed params/result material for the audit payload's
+     * intent/observation objects (the sealed event carries only hashes).
+     */
+    material?: { params: unknown; result: unknown },
   ): Promise<ReceiptPointer>;
   /**
    * Durable idempotency binding WITHOUT an audit event — for mutating
@@ -135,6 +140,15 @@ export interface DispatchContext {
   epoch: string;
   /** Injected service implementations (may be partial). */
   services: Partial<GatewayServices>;
+  /**
+   * Per-call service binding: when present, the dispatcher builds the
+   * service map AFTER authentication so platform services see the real
+   * `ctx.principal`/`requestId` rather than a boot-time default.
+   */
+  bindServices?: (ctx: {
+    principal: Principal;
+    requestId: string;
+  }) => Partial<GatewayServices>;
   /** Peer token store — required before any peer credential resolves. */
   peers?: PeerAuthEnv["peers"];
   /** Audit receipt sink; null disables receipts (transport failures only). */
@@ -633,9 +647,12 @@ async function run(
 
   let result: Json;
   try {
+    const services =
+      ctx.bindServices?.({ principal, requestId: request.id }) ??
+      ctx.services;
     const [group, fn] = METHOD_SERVICE_MAP[method]!;
-    const svc = ctx.services[group] as
-      | Record<string, (params: unknown) => Promise<unknown>>
+    const svc = services[group] as
+      | Record<string, (params: unknown, caller?: unknown) => Promise<unknown>>
       | undefined;
     const impl = svc?.[fn];
     if (typeof impl !== "function") {
@@ -643,7 +660,14 @@ async function run(
         ctx.unavailableCodes?.[method] ?? UNAVAILABLE_BY_DOMAIN[group];
       throw new RpcError(code, `service ${group}.${fn} is not available`);
     }
-    result = (await impl.call(svc, request.params)) as Json;
+    // The approval runtime's caller contract (id/role/reviewer) rides as
+    // an optional second argument; services that take only params ignore it.
+    const caller = {
+      id: principal.id,
+      role: principal.role,
+      reviewer: principal.reviewer === true,
+    };
+    result = (await impl.call(svc, request.params, caller)) as Json;
   } catch (e) {
     const m = mapThrown(e);
     // Authorized semantic rejection: durable audit receipt (§11), then the
@@ -654,6 +678,7 @@ async function run(
         receipt = await receipts.commitAction(
           makeAction("FAILED", m.code, undefined),
           null,
+          { params: scrubParams(request.params), result: null },
         );
       } catch {
         receipt = null;
@@ -685,6 +710,7 @@ async function run(
                 }),
             }
           : null,
+        { params: scrubParams(request.params), result: scrubParams(result) },
       );
     } catch {
       // Audit persistence failure → STORAGE_UNAVAILABLE before disclosure.

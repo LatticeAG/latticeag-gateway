@@ -1,0 +1,25 @@
+{
+  "name": "@latticeag/gateway-web",
+  "version": "0.0.0",
+  "description": "Gateway v2 loopback operator workbench (single-file build served by the daemon bridge).",
+  "type": "module",
+  "private": true,
+  "license": "MIT",
+  "engines": {
+    "node": ">=20.19"
+  },
+  "scripts": {
+    "build": "vite build",
+    "test": "vitest run",
+    "dev": "vite",
+    "check": "tsc --noEmit && vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.19",
+    "happy-dom": "20.14.0",
+    "typescript": "~5.8.3",
+    "vite": "^7.3.6",
+    "vite-plugin-singlefile": "^2.3.3",
+    "vitest": "^3.0.9"
+  }
+}

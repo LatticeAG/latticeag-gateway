@@ -71,7 +71,8 @@ describe("verifyRelease (§5.1)", () => {
     ).toThrowError(expect.objectContaining({ code: "UNSUPPORTED_COMPOSITION" }));
   });
 
-  test("TV-GW-45: expired index → TRUST_EXPIRED unless pinned", () => {
+  // Canonical vector coverage: TV-GW-45 in v2/vectors/sync-storage.test.ts.
+  test("expired index → TRUST_EXPIRED unless pinned", () => {
     const expired = { ...ctx, now: now + 365 * 86_400_000, indexExpiresMs: now + 604_800_000 };
     expect(() => verifyRelease(wire1(), fixtureTrust(), expired)).toThrowError(
       expect.objectContaining({ code: "TRUST_EXPIRED" }),

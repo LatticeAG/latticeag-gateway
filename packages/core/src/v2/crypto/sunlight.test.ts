@@ -197,7 +197,8 @@ describe("sunlight statements", () => {
     expect(verifyReleaseThreshold([s1, s9], aliased)).toBe(false);
   });
 
-  test("TV-GW-47: one malformed extra signature fails the whole set", () => {
+  // Canonical vector coverage: TV-GW-47 in v2/vectors/sync-storage.test.ts.
+  test("one malformed extra signature fails the whole set", () => {
     const roots = rootSet();
     const s1 = statementFor(3, originSecret, slk(1));
     const s2 = statementFor(4, auditorSecret, slk(2));

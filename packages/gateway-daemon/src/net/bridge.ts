@@ -41,7 +41,6 @@ import { parseStrictJson } from "./strict-json.js";
 import {
   extractPeerProofHeaders,
   type SessionRecord,
-  type SessionStore,
   type TransportCredentials,
 } from "../rpc/auth.js";
 import type { DispatchOutcome } from "../rpc/dispatch.js";
@@ -86,7 +85,15 @@ export interface BridgeOptions {
    * `latticeag_session_<instance>_<bound port>` (§6).
    */
   sessionCookie?: string;
-  sessions: SessionStore;
+  /**
+   * Session token resolver (`peek` does not slide idle; `resolve` does).
+   * The concrete `SessionStore` satisfies this; the daemon substitutes a
+   * durable registry-backed resolver.
+   */
+  sessions: {
+    peek(id: string): SessionRecord | null;
+    resolve(id: string): SessionRecord | null;
+  };
   /** SSE wiring; null disables GET /v2/events (404). */
   sse?: BridgeSse | null;
   /** gateway-web dist directory; null/undefined → static 404. */
@@ -178,6 +185,13 @@ export async function createBridgeListener(
   port: number,
   opts: BridgeOptions,
 ): Promise<BridgeHandle> {
+  // Loopback-only is a runtime invariant, not just a type: a cast or a
+  // non-TS caller must never open a non-loopback listener (spec §6).
+  if (bind !== "127.0.0.1" && bind !== "::1") {
+    throw new RpcError("SCHEMA_INVALID", "bridge bind must be a loopback address", {
+      field: "bind",
+    });
+  }
   // Resolved after listen() so an ephemeral port produces the real values.
   let host = "";
   let sessionCookie = "";

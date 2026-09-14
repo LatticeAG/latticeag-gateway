@@ -46,6 +46,7 @@
     "string-argv": "^0.3.2"
   },
   "devDependencies": {
+    "@latticeag/gateway-daemon": "workspace:*",
     "@types/node": "^20.17.19",
     "tsx": "^4.19.3",
     "typescript": "~5.8.3",

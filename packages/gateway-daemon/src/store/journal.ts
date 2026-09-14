@@ -1,3 +1,4 @@
+import { openSync, writeSync, fsyncSync, closeSync, existsSync } from "node:fs";
 import { open, readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { storeError, StoreError } from "./errors.js";
@@ -269,6 +270,54 @@ export class Journal {
   }
 
   /**
+   * Synchronous variant of `append` for mutation-only commits behind
+   * synchronous port contracts (peer/session/approval stores). Requires
+   * the head to be known already — `GatewayStore.open` always verifies
+   * the chain during recovery, so this never does IO beyond the append.
+   * Same chain/validity enforcement as `append`.
+   */
+  appendSync(marker: CommitMarker): JournalHead {
+    if (!this.headKnown) {
+      throw storeError(
+        "CORRUPT",
+        "journal head unknown: run verify() before composing markers",
+      );
+    }
+    if (this.readOnly) {
+      throw storeError("READ_ONLY", "journal is read-only", this.readOnly);
+    }
+    const expected =
+      this.headTx === null ? "1" : (BigInt(this.headTx) + 1n).toString();
+    if (marker.tx !== expected || marker.previous !== this.headHash) {
+      throw storeError("CHAIN_MISMATCH", "marker does not extend head", {
+        expected_tx: expected,
+        expected_previous: this.headHash,
+        got_tx: marker.tx,
+        got_previous: marker.previous,
+      });
+    }
+    if (parseMarker(marker) === null) {
+      throw storeError("CORRUPT", "refusing to append malformed marker");
+    }
+    const created = !existsSync(this.path);
+    const line = Buffer.concat([
+      Buffer.from(JSON.stringify(marker), "utf8"),
+      Buffer.from([0x0a]),
+    ]);
+    const fd = openSync(this.path, "a", FILE_MODE);
+    try {
+      writeSync(fd, line);
+      fsyncSync(fd);
+    } finally {
+      closeSync(fd);
+    }
+    if (created) fsyncDirSync(this.dir);
+    this.headTx = marker.tx;
+    this.headHash = sha256hex(line);
+    return this.head();
+  }
+
+  /**
    * Strict read of every committed marker. Throws READ_ONLY when the chain
    * is corrupt; repairs a torn tail first (same as verify()).
    */
@@ -441,6 +490,16 @@ export class Journal {
       }
     }
     return out;
+  }
+}
+
+/** Synchronous fsync of a directory (used by appendSync's create path). */
+function fsyncDirSync(dir: string): void {
+  const fd = openSync(dir, "r");
+  try {
+    fsyncSync(fd);
+  } finally {
+    closeSync(fd);
   }
 }
 

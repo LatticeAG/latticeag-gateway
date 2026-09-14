@@ -14,3 +14,4 @@ export * from "./sync.js";
 export * from "./catalog.js";
 export * from "./exit-codes.js";
 export * from "./services.js";
+export * from "./terminal.js";

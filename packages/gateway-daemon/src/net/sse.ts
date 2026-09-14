@@ -17,6 +17,7 @@
  * for >5000 ms are disconnected. Cursor/secret state survives disconnects.
  */
 import type { ServerResponse } from "node:http";
+import { parseCursor } from "../store/lanes.js";
 
 export const SSE_LIMITS = {
   frameBytes: 128 * 1024,
@@ -113,7 +114,7 @@ export async function serveSse(
       : (sub.lastAckCursor ?? "");
   if (cursor !== "") {
     const earliest = source.earliestRetainedCursor(sub.id);
-    if (earliest !== null && cursor < earliest) {
+    if (earliest !== null && cursorPrecedes(cursor, earliest)) {
       // Cursor is before retained history — the tail cannot be replayed.
       const err = new Error("stale cursor");
       (err as { code?: string }).code = "CURSOR_GONE";
@@ -204,6 +205,21 @@ export async function serveSse(
     res.off("close", onClose);
     if (!res.writableEnded) res.end();
   }
+}
+
+/**
+ * True when `a` orders strictly before `b` in cursor order. Cursors are
+ * compared structurally (lane ordinal, then record ordinal as integers) —
+ * a lexicographic compare would misorder e.g. `…:7` against `…:12`.
+ * Cursors outside the `c<16hex>:<ordinal>` grammar fall back to an opaque
+ * byte order so the check stays total.
+ */
+export function cursorPrecedes(a: string, b: string): boolean {
+  const pa = parseCursor(a);
+  const pb = parseCursor(b);
+  if (pa === null || pb === null) return a < b;
+  if (pa.laneOrdinal !== pb.laneOrdinal) return pa.laneOrdinal < pb.laneOrdinal;
+  return pa.recordOrdinal < pb.recordOrdinal;
 }
 
 /** `Last-Event-ID` header → cursor (format `c<16hex>:<ordinal>`). */
