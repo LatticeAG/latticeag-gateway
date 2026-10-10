@@ -21,7 +21,9 @@ import {
   type Adapter,
 } from "@latticeag/bus";
 import {
+  deriveV1Config,
   loadConfig,
+  type LatticeagConfig,
   type LoadedConfig,
 } from "@latticeag/config";
 import { getAttachKit, isAttachKitId, type AttachKitId } from "../attach/index.js";
@@ -265,12 +267,12 @@ export async function startLatticeRun(
   } catch (err) {
     failConfig(err, flags.json, "run");
   }
-  if (loaded.version !== 1) {
-    fail(
-      `config schema_version ${loaded.config.schema_version} requires migration before run`,
-      { json: flags.json, command: "run", code: "CONFIG_MIGRATION_REQUIRED", exitCode: 3 },
-    );
-  }
+  // `run`/`dev` speak the legacy v1 surface, which a v2 document embeds
+  // verbatim (spec §8.1): the shared fragments are identical and migrated
+  // files keep the v1 sync under `sync.legacy`. Derive the in-memory v1
+  // view rather than refusing a fresh `init --schema 2` config.
+  const runConfig: LatticeagConfig =
+    loaded.version === 1 ? loaded.config : deriveV1Config(loaded.config);
 
   let env: NodeJS.ProcessEnv;
   try {
@@ -285,7 +287,7 @@ export async function startLatticeRun(
 
   let adapterNames;
   try {
-    adapterNames = resolveRunAdapters(loaded.config, flags.adapters);
+    adapterNames = resolveRunAdapters(runConfig, flags.adapters);
   } catch (err) {
     if (err instanceof AdapterOverlayError) {
       fail(err.message, {
@@ -390,13 +392,13 @@ export async function startLatticeRun(
     run_id,
     session_id,
     log_path,
-    ring_capacity: loaded.config.bus.ring_capacity,
-    overflow_block_ms: loaded.config.bus.overflow_block_ms,
-    overflow: loaded.config.bus.overflow,
-    persist_fail: loaded.config.bus.persist_fail,
-    redact_keys: [...loaded.config.redaction.keys],
-    include_raw_text: loaded.config.redaction.include_raw_text,
-    max_log_bytes: loaded.config.bus.max_log_bytes,
+    ring_capacity: runConfig.bus.ring_capacity,
+    overflow_block_ms: runConfig.bus.overflow_block_ms,
+    overflow: runConfig.bus.overflow,
+    persist_fail: runConfig.bus.persist_fail,
+    redact_keys: [...runConfig.redaction.keys],
+    include_raw_text: runConfig.redaction.include_raw_text,
+    max_log_bytes: runConfig.bus.max_log_bytes,
   });
   writeBusPid(cwd);
 
@@ -422,7 +424,7 @@ export async function startLatticeRun(
       `starting ingest ${loaded.config.ingest.bind}:${loaded.config.ingest.port}`,
     );
     ingest = await startIngest({
-      config: loaded.config,
+      config: runConfig,
       bus,
       cwd,
       env,
@@ -432,12 +434,12 @@ export async function startLatticeRun(
     const kit = getAttachKit(flags.attach);
     const axionEnabled = adapterNames.includes("axion");
     const injected = kit.injectEnv(env, {
-      config: loaded.config,
+      config: runConfig,
       run_id,
       session_id,
       ingest_url: ingest.url,
       ...(axionEnabled
-        ? { axion_base_url: loaded.config.adapters.axion.base_url }
+        ? { axion_base_url: runConfig.adapters.axion.base_url }
         : {}),
     });
     Object.assign(env, injected);
@@ -451,7 +453,7 @@ export async function startLatticeRun(
     }
 
     const ctx = {
-      config: loaded.config,
+      config: runConfig,
       bus,
       cwd,
       env,

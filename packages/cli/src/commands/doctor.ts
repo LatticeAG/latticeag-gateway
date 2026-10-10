@@ -14,6 +14,7 @@ import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import type { Command } from "commander";
 import {
+  deriveV1Config,
   discoverConfig,
   formatZodIssue,
   parseJsonStrict,
@@ -433,20 +434,12 @@ export async function runDoctorChecks(options: {
     configPath = discovered.path;
     try {
       const read = readConfigFile(discovered.path);
-      if (read.version === 1) {
-        config = read.config;
-        checks.push(
-          check("config_valid", "pass", `schema_version=${config.schema_version}`),
-        );
-      } else {
-        checks.push(
-          check(
-            "config_valid",
-            "warn",
-            `schema_version=${read.config.schema_version} (v2 config; v1 checks skipped)`,
-          ),
-        );
-      }
+      // The v1 checks (adapters, env keys, ports) read the shared fragments
+      // a v2 document embeds verbatim — derive the view rather than skip.
+      config = read.version === 1 ? read.config : deriveV1Config(read.config);
+      checks.push(
+        check("config_valid", "pass", `schema_version=${read.config.schema_version}`),
+      );
     } catch (err) {
       if (err instanceof ConfigParseError) {
         checks.push(

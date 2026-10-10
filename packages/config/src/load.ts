@@ -303,3 +303,32 @@ export function loadConfigV2(cwd: string): LoadedConfigV2 {
   }
   return loaded;
 }
+
+/**
+ * The v1 view of a v2 document (spec §8.1/§8.2). The v2 schema reuses the
+ * v1 fragments verbatim — project, bus, ingest, adapters, redaction,
+ * doctor — and migrated files carry the original v1 `sync` under
+ * `sync.legacy`. A v2-native document with `sync.legacy: null` gets the
+ * same disabled-sync defaults `createDefaultConfig` writes.
+ *
+ * This is an in-memory projection only: nothing is written back and no
+ * migration runs. Consumers that speak the legacy v1 surface (`run`,
+ * `dev`, adapter contexts) use it to accept either schema_version.
+ */
+export function deriveV1Config(v2: LatticeagConfigV2): LatticeagConfig {
+  return latticeagConfigSchema.parse({
+    schema_version: 1,
+    project: v2.project,
+    bus: v2.bus,
+    ingest: v2.ingest,
+    adapters: v2.adapters,
+    redaction: v2.redaction,
+    doctor: v2.doctor,
+    sync: v2.sync.legacy ?? {
+      enabled: false,
+      gateway_url_env: "LEXGATEWAY_URL",
+      token_env: "LEXGATEWAY_TOKEN",
+      polymesh: { enabled: false },
+    },
+  });
+}
