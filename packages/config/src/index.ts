@@ -17,6 +17,7 @@ export {
   CONFIG_FILENAME,
   loadConfig,
   loadConfigV2,
+  deriveV1Config,
   discoverConfig,
   readConfigFile,
   parseJsonStrict,

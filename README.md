@@ -176,6 +176,20 @@ pnpm typecheck   # pnpm -r exec tsc --noEmit
 pnpm --filter @latticeag/events codegen
 ```
 
+The `@latticeag/events` codegen — including the codegen drift test and the
+python `models.py` artifacts — needs a repo-root Python venv with
+`datamodel-code-generator`, `pydantic`, `pytest`, and `hatchling` (the same
+venv CI creates):
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install 'datamodel-code-generator>=0.26' 'pydantic>=2.10,<3' pytest hatchling
+```
+
+Without it the codegen drift test is skipped rather than failing; the
+`codegen` command itself still requires the venv. The remaining test files
+run with Node alone.
+
 Test suite (verified): **177 passed, 0 failed across 42 test files and 13 packages** — including the offline end-to-end `runs-on-latticeag` fixture (`belief → verdict → approval → receipt` chain order asserted).
 
 ## File Tree

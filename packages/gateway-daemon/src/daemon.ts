@@ -243,9 +243,7 @@ export class GatewayDaemon {
         epoch: this.epoch,
         supervisor: this.supervisor,
         uiEndpoint: () => this.endpoint?.ui_url ?? null,
-        onStop: (graceMs) => {
-          setTimeout(() => void this.stop(graceMs), 25).unref();
-        },
+        onStop: (graceMs) => this.requestStop(graceMs),
       });
       if (opts.peers !== undefined) this.peers = opts.peers;
       else this.peers = this.runtime.ports.peerTokens;
@@ -515,7 +513,7 @@ export class GatewayDaemon {
           }
           grace = p.grace_ms;
         }
-        setTimeout(() => void this.stop(grace), 25).unref();
+        this.requestStop(grace);
         return { state: "DRAINING" };
       },
     };
@@ -532,14 +530,38 @@ export class GatewayDaemon {
   // ── stop / teardown ──────────────────────────────────────────────────
 
   /**
+   * Enter DRAINING synchronously. Returns false when the daemon is already
+   * draining or stopped. Callers that answer the stop RPC must flip the
+   * state BEFORE responding — the response advertises DRAINING, so new
+   * mutations must be rejected from that moment on (§1.3).
+   */
+  private beginStop(): boolean {
+    if (this.state_ === "STOPPED" || this.stopping) return false;
+    this.stopping = true;
+    this.state_ = "DRAINING";
+    return true;
+  }
+
+  /**
+   * Stop requested via RPC/service wiring: transition to DRAINING now, then
+   * run the drain + listener teardown on a short defer so the DRAINING
+   * response still reaches the caller over the socket.
+   */
+  private requestStop(graceMs: number): void {
+    if (!this.beginStop()) return;
+    setTimeout(() => void this.drainAndTeardown(graceMs), 25).unref();
+  }
+
+  /**
    * READY → DRAINING → STOPPED. `graceMs` bounds the in-flight drain; the
    * hard cap is 10 s regardless. Idempotent.
    */
   async stop(graceMs: number = STOP_GRACE_CAP_MS): Promise<void> {
-    if (this.state_ === "STOPPED" || this.stopping) return;
-    this.stopping = true;
-    this.state_ = "DRAINING";
+    if (!this.beginStop()) return;
+    await this.drainAndTeardown(graceMs);
+  }
 
+  private async drainAndTeardown(graceMs: number): Promise<void> {
     // Drain in-flight RPCs up to min(grace, 10 s).
     const deadline = Date.now() + Math.min(graceMs, STOP_GRACE_CAP_MS);
     while (this.inflight > 0 && Date.now() < deadline) {
