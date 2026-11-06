@@ -22,7 +22,7 @@
  */
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { lstat, unlink, chmod, stat } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { ensureDir, pathExists } from "../store/util.js";
 import { ENVELOPE_LIMITS } from "../core-v2.js";
 import {
@@ -85,10 +85,13 @@ export async function assertSafeSocketAncestors(dir: string): Promise<void> {
         `socket ancestor ${cur} is group/world-writable without sticky bit`,
       );
     }
-    const parent = join(cur, "..");
-    const resolved = new URL(`file://${cur}/..`).pathname;
-    if (resolved === cur || parent === cur) return;
-    cur = resolved;
+    // Walk one real level up. `new URL("file:///a/b/..").pathname` keeps the
+    // literal `..` segment (URL does not normalise dot segments), so using it
+    // here appends `/..` forever and ends in ENAMETOOLONG instead of stopping
+    // at the filesystem root.
+    const parent = dirname(cur);
+    if (parent === cur) return;
+    cur = parent;
   }
 }
 
