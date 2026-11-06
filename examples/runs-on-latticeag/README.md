@@ -32,6 +32,11 @@ pnpm --filter @latticeag/example-runs-on-latticeag exec latticeag run \
   --cmd "npx tsx src/agent.ts --offline-fixture"
 ```
 
+In `--offline-fixture` mode, the example agent generates and ingests its own
+steer and pass verdicts locally. It also attempts LexVerdict HTTP calls, and the
+gateway adapters may emit their own verdicts or errors. The asserted chain
+therefore does not demonstrate a live LexVerdict decision.
+
 Then:
 
 ```
