@@ -19,9 +19,10 @@ pnpm --filter @latticeag/example-runs-on-latticeag exec latticeag run \
   --cmd "npx tsx src/agent.ts"
 ```
 
-CI:
+CI (run from `examples/runs-on-latticeag`; the `.env` file supplies the adapter URLs):
 
 ```
+cp .env.example .env
 LATTICEAG_GOAL="Write production config.yaml with env: production and replicas: 3" \
 VEKINBOX_AUTO_APPROVE=1 \
 pnpm --filter @latticeag/example-runs-on-latticeag exec latticeag run \
