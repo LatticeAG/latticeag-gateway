@@ -19,14 +19,13 @@ pnpm --filter @latticeag/example-runs-on-latticeag exec latticeag run \
   --cmd "npx tsx src/agent.ts"
 ```
 
-CI (run from `examples/runs-on-latticeag`; the `.env` file supplies the adapter URLs):
+CI (run from `examples/runs-on-latticeag`; no `.env` file is required):
 
 When both fixture files are supplied to an `--offline-fixture` child and
 `LEXVERDICT_URL` is unset, the live LexVerdict adapter is skipped; the example
 agent supplies fixture verdicts instead. Setting the URL starts the adapter.
 
 ```
-cp .env.example .env
 LATTICEAG_GOAL="Write production config.yaml with env: production and replicas: 3" \
 VEKINBOX_AUTO_APPROVE=1 \
 pnpm --filter @latticeag/example-runs-on-latticeag exec latticeag run \
