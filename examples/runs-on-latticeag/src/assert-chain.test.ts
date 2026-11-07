@@ -110,7 +110,8 @@ describe("runs-on-latticeag assert-chain", () => {
           "Write production config.yaml with env: production and replicas: 3",
         VEKINBOX_AUTO_APPROVE: "1",
         AXION_WEBHOOK_ALLOW_UNSIGNED: "true",
-        LEXVERDICT_URL: "http://127.0.0.1:8789",
+        // An empty value also overrides any developer's local .env file.
+        LEXVERDICT_URL: "",
         VEKINBOX_URL: "http://127.0.0.1:3001/v1",
         VEKINBOX_API_KEY: "vk_test_ci",
         VEKINBOX_WORKSPACE_ID: "ws_demo",

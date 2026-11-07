@@ -21,6 +21,10 @@ pnpm --filter @latticeag/example-runs-on-latticeag exec latticeag run \
 
 CI (run from `examples/runs-on-latticeag`; the `.env` file supplies the adapter URLs):
 
+When both fixture files are supplied to an `--offline-fixture` child and
+`LEXVERDICT_URL` is unset, the live LexVerdict adapter is skipped; the example
+agent supplies fixture verdicts instead. Setting the URL starts the adapter.
+
 ```
 cp .env.example .env
 LATTICEAG_GOAL="Write production config.yaml with env: production and replicas: 3" \
