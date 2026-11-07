@@ -2,6 +2,7 @@ import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { latticeagConfigSchema } from "@latticeag/config";
 import { AGENT_STUB, ENV_EXAMPLE } from "./env-example.js";
@@ -12,9 +13,12 @@ function tempDir(): string {
 }
 
 describe("latticeag init", () => {
-  it("exports the example environment when sourced by bash", () => {
+  it.each([
+    ["generated", ENV_EXAMPLE],
+    ["demo", readFileSync(fileURLToPath(new URL("../../../../examples/runs-on-latticeag/.env.example", import.meta.url)), "utf8")],
+  ])("exports the %s example environment when sourced by bash", (_name, contents) => {
     const dir = tempDir();
-    writeFileSync(path.join(dir, ".env.example"), ENV_EXAMPLE);
+    writeFileSync(path.join(dir, ".env.example"), contents);
     const output = execFileSync("bash", ["-c", "source .env.example && node -e 'process.stdout.write(JSON.stringify([process.env.LEXVERDICT_URL, process.env.LATTICEAG_GOAL]))'"], {
       cwd: dir,
       env: { PATH: process.env.PATH },
