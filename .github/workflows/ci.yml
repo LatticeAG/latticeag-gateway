@@ -27,7 +27,7 @@ jobs:
       - name: Codegen venv
         run: |
           python3 -m venv .venv
-          .venv/bin/pip install -q 'datamodel-code-generator>=0.26' 'pydantic>=2.10,<3' pytest hatchling
+          .venv/bin/pip install -q 'datamodel-code-generator==0.90.0' 'pydantic>=2.10,<3' pytest hatchling
       - name: Install
         run: pnpm install --frozen-lockfile
       - name: Build

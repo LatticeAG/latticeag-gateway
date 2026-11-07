@@ -180,7 +180,7 @@ function runDatamodelCodegen(envelopeSchemaJson: string): string {
   const bin = path.join(repoRoot, ".venv", "bin", "datamodel-codegen");
   if (!existsSync(bin)) {
     throw new Error(
-      `datamodel-codegen not found at ${bin}. Create the venv: python3 -m venv ${path.join(repoRoot, ".venv")} && ${path.join(repoRoot, ".venv", "bin", "pip")} install 'datamodel-code-generator>=0.26' 'pydantic>=2.10,<3' pytest hatchling`,
+      `datamodel-codegen not found at ${bin}. Create the venv: python3 -m venv ${path.join(repoRoot, ".venv")} && ${path.join(repoRoot, ".venv", "bin", "pip")} install 'datamodel-code-generator==0.90.0' 'pydantic>=2.10,<3' pytest hatchling`,
     );
   }
   const tmp = mkdtempSync(path.join(tmpdir(), "latticeag-events-"));

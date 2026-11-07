@@ -653,7 +653,9 @@ class Payload8(BaseModel):
     )
     source: Source2
     name: constr(min_length=1)
-    arguments: dict[str, str | float | bool | Arguments | list[AdditionalProperties | None] | None]
+    arguments: dict[
+        str, str | float | bool | Arguments | list[AdditionalProperties | None] | None
+    ]
     result: AdditionalProperties | None = None
     error: str | None = None
     argument_fingerprint: str | None = None
@@ -733,13 +735,22 @@ class Model(RootModel[LatticeEvent]):
 class Arguments(
     RootModel[dict[str, Union[str | float | bool | None, "Arguments", list[Optional["AdditionalProperties"]]]]]
 ):
-    root: dict[str, Union[str | float | bool | None, "Arguments", list[Optional["AdditionalProperties"]]]]
+    root: dict[
+        str,
+        Union[
+            str | float | bool | None,
+            "Arguments",
+            list[Optional["AdditionalProperties"]],
+        ],
+    ]
 
 
 class AdditionalProperties(
     RootModel[Union[str | float | bool | None, Arguments, list[Optional["AdditionalProperties"]]]]
 ):
-    root: Union[str | float | bool | None, Arguments, list[Optional["AdditionalProperties"]]]
+    root: Union[
+        str | float | bool | None, Arguments, list[Optional["AdditionalProperties"]]
+    ]
 
 
 Payload8.model_rebuild()
