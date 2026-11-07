@@ -27,6 +27,7 @@ import { writeJson } from "../json-envelope.js";
 import { CLI_VERSION } from "../cli-version.js";
 import { resolvePackageVersion } from "../package-version.js";
 import { ENV_EXAMPLE, GITIGNORE_RULES } from "./env-example.js";
+import { loadEnvFile } from "./run.js";
 
 const execFileAsync = promisify(execFile);
 const requireFromCli = createRequire(fileURLToPath(new URL(".", import.meta.url)));
@@ -981,6 +982,7 @@ export async function runDoctor(raw: {
   json?: boolean;
 }): Promise<void> {
   const json = raw.json === true;
+  Object.assign(process.env, loadEnvFile(process.cwd(), undefined, process.env));
   const result = await runDoctorChecks({
     offline: raw.offline === true,
     fix: raw.fix === true,

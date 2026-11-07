@@ -515,6 +515,10 @@ export class GatewayDaemon {
           }
           grace = p.grace_ms;
         }
+        // §1.3: the {state:"DRAINING"} answer has to be in force when it is
+        // sent. Without this, a mutation racing the 25 ms teardown hand-off is
+        // still admitted after the caller was told the daemon is draining.
+        this.beginDrain();
         setTimeout(() => void this.stop(grace), 25).unref();
         return { state: "DRAINING" };
       },
@@ -530,6 +534,15 @@ export class GatewayDaemon {
   }
 
   // ── stop / teardown ──────────────────────────────────────────────────
+
+  /**
+   * Enter DRAINING without starting teardown, so the admission gate is closed
+   * before `daemon.stop` answers. Idempotent; a no-op once STOPPED.
+   */
+  private beginDrain(): void {
+    if (this.state_ === "STOPPED") return;
+    this.state_ = "DRAINING";
+  }
 
   /**
    * READY → DRAINING → STOPPED. `graceMs` bounds the in-flight drain; the

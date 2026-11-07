@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -20,6 +20,22 @@ const doctorEnv = {
 };
 
 describe("latticeag doctor", () => {
+  it("loads cwd .env without overriding exported values", async () => {
+    const dir = tempDir();
+    const init = await runCli(
+      ["init", dir, "--template", "blank", "--adapters", "lexverdict", "--schema", "1"],
+      { env: doctorEnv },
+    );
+    expect(init.status).toBe(0);
+    writeFileSync(path.join(dir, ".env"), 'LEXVERDICT_URL="http://127.0.0.1:8789"\nOPENAI_API_KEY=file-key\n');
+    const result = await runCli(["--cwd", dir, "doctor", "--offline", "--json"], {
+      env: { ...doctorEnv, LEXVERDICT_URL: undefined, OPENAI_API_KEY: "exported" },
+    });
+    const checks = JSON.parse(result.stdout).data.checks as Array<{ id: string; status: string; chars?: number }>;
+    expect(checks.find((c) => c.id === "env_LEXVERDICT_URL")?.status).toBe("pass");
+    expect(checks.find((c) => c.id === "env_OPENAI_API_KEY")?.chars).toBe(8);
+  });
+
   it("offline checks emit every check id after init", async () => {
     const dir = tempDir();
     const init = await runCli(

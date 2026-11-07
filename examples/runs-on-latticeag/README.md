@@ -19,7 +19,11 @@ pnpm --filter @latticeag/example-runs-on-latticeag exec latticeag run \
   --cmd "npx tsx src/agent.ts"
 ```
 
-CI:
+CI (run from `examples/runs-on-latticeag`; no `.env` file is required):
+
+When both fixture files are supplied to an `--offline-fixture` child and
+`LEXVERDICT_URL` is unset, the live LexVerdict adapter is skipped; the example
+agent supplies fixture verdicts instead. Setting the URL starts the adapter.
 
 ```
 LATTICEAG_GOAL="Write production config.yaml with env: production and replicas: 3" \
@@ -30,6 +34,11 @@ pnpm --filter @latticeag/example-runs-on-latticeag exec latticeag run \
   --attach custom \
   --cmd "npx tsx src/agent.ts --offline-fixture"
 ```
+
+In `--offline-fixture` mode, the example agent generates and ingests its own
+steer and pass verdicts locally. It also attempts LexVerdict HTTP calls, and the
+gateway adapters may emit their own verdicts or errors. The asserted chain
+therefore does not demonstrate a live LexVerdict decision.
 
 Then:
 

@@ -296,6 +296,14 @@ export async function startLatticeRun(
     }
     throw err;
   }
+  // The example's offline fixture agent supplies verdicts itself. When both
+  // input fixtures are requested and no LexVerdict endpoint is configured,
+  // leave that live adapter out rather than preventing the child from running.
+  if (flags.fixtureBeliefs && flags.fixtureApprovals && !env.LEXVERDICT_URL?.trim() &&
+      stringArgv(flags.cmd).includes("--offline-fixture")) {
+    adapterNames = adapterNames.filter((name) => name !== "lexverdict");
+    if (!flags.quiet) process.stderr.write("Offline fixture run: LexVerdict adapter skipped (LEXVERDICT_URL unset).\n");
+  }
 
   const run_id = flags.runId ?? newRunId();
   if (flags.runId && !isUlid(flags.runId)) {
